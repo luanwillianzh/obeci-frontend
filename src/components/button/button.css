@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
+
+.button-obeci {
+    width: fit-content /*20.3rem*/;
+    height: 5.25rem;
+    padding-left: 1.92rem;
+    padding-right: 1.92rem;
+    background: #F2B694;
+    border-radius: 3.5rem;
+
+    font-family: 'Nunito';
+    font-style: normal;
+    font-weight: 400;
+    font-size: 2.8rem;
+    line-height: 3.85rem;
+    display: flex;
+    align-items: center;
+
+    color: #000000;
+}

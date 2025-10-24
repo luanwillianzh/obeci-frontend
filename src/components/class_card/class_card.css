@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
+
+.class-card {
+    position: relative;
+    width: 27.44rem;
+    height: 19.32rem;
+
+    background: #FFFFFF;
+    box-shadow: 0.0rem 0.28rem 0.28rem rgba(0, 0, 0, 0.25);
+    border-radius: 3.5rem;
+
+    & h2 {
+        position: absolute;
+        width: 12.6rem;
+        height: 5.11rem;
+        left: 1.19rem;
+        top: 2.03rem;
+
+        font-family: 'Nunito';
+        font-style: normal;
+        font-weight: 400;
+        font-size: 2.8rem;
+        line-height: 3.85rem;
+        display: flex;
+        align-items: center;
+
+        color: #000000;
+    }
+
+    & .turno {
+        position: absolute;
+        width: 20.72rem;
+        height: 5.11rem;
+        left: 3.36rem;
+        top: 6.4rem;
+
+        font-family: 'Nunito';
+        font-style: normal;
+        font-weight: 400;
+        font-size: 2.4rem;
+        line-height: 3.08rem;
+        display: flex;
+        align-items: center;
+
+        color: #000000;
+    }
+
+    & .q_alunos {
+        position: absolute;
+        width: 20.72rem;
+        height: 5.11rem;
+        left: 3.36rem;
+        top: 9.66rem;
+
+        font-family: 'Nunito';
+        font-style: normal;
+        font-weight: 400;
+        font-size: 2.24rem;
+        line-height: 3.08rem;
+        display: flex;
+        align-items: center;
+
+        color: #000000;
+    }
+
+    & a {
+        position: absolute;
+        width: 12.11rem;
+        height: 2.59rem;
+        left: 13.09rem;
+        top: 14.77rem;
+        font-size: 1.4rem;
+        background: #FEDFCD;
+        border-radius: 3.5rem;
+        color: #000;
+        text-decoration: none;
+        font-family: 'Nunito';
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+}
