@@ -1,41 +1,131 @@
 "use client";
 import Title from "@/components/title/title";
-import ClassCard from "@/components/class_card/class_card"; 
-import ButtonObeci from "@/components/button/button";
+import ClassCard from "@/components/class_card/class_card";
 import "./turmas.css";
 
 export default function Turma() {
   return (
     <>
-    <div style={{padding: '2.5rem'}}>
-      <div style={{display: 'grid', gridTemplateColumns: '5fr 2fr', justifyContent: 'center', gap: '2rem'}}>
-        <div>
-          <Title text="Turmas"></Title>
-          <div style={{display: 'flex', flexWrap: 'wrap', justifyContent: 'space-evenly', gap: '5rem, 5rem', marginBottom: '1rem'}}>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
-            <ClassCard class_name="Turma A" turno="Manhã" q_alunos={30} class_id="1"></ClassCard>
+      <div className="container-principal-turmas">
+        <div className="container-lembrete-turmas">
+          <div className="container-header-turmas">
+            <div className="container-texto">
+              <Title text="Turmas"></Title>
+            </div>
+            <div className="container-turmas">
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+              <ClassCard
+                class_name="Turma A"
+                turno="Manhã"
+                q_alunos={30}
+                class_id="1"
+              ></ClassCard>
+            </div>
           </div>
-        </div>
-        <div className="lembrete">
+          <div className="lembrete"></div>
         </div>
       </div>
-    </div>
     </>
   );
 }
