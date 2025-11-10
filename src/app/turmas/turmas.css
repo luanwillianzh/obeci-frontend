@@ -50,7 +50,7 @@
 
 .lembrete-textarea {
   width: 100%;
-  height: 50%;
+  height: 30%;
   min-height: 200px;
   padding: 1.5rem;
   border-radius: 2rem;
@@ -58,6 +58,7 @@
   resize: none;
   overflow-y: auto;
   font-size: 1.5rem;
+  font-family: inherit;
   background-color: #f8f8f8;
 }
 
