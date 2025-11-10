@@ -123,7 +123,18 @@ export default function Turma() {
               ></ClassCard>
             </div>
           </div>
-          <div className="lembrete"></div>
+          <div className="lembrete">
+            <h2>Lembretes</h2>
+            <textarea
+              className="lembrete-textarea"
+              placeholder="Digite seu lembrete..."
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = "auto";
+                target.style.height = `${target.scrollHeight}px`;
+              }}
+            />
+          </div>
         </div>
       </div>
     </>
