@@ -1,11 +1,11 @@
 .container-login-page {
   display: flex;
   flex-flow: row nowrap;
-  height: 88vh;
+  height: 88%;
   /*  align-items: center;
   justify-content: center; */
   & .container-imagem {
-    width: 41vw;
+    width: 76.2rem;
     height: 100%;
     & img {
       width: inherit;
@@ -18,7 +18,7 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    height: inherit;
+    height: 100%;
     & .container-login {
       border-radius: 2.5rem;
       background-color: var(--cor2-obeci);

@@ -17,6 +17,9 @@ html {
   font-size: 62.5%;
   font-family: "Nunito";
 }
+body {
+  height: 100vh;
+}
 
 /* @media (prefers-color-scheme: dark) {
   html {

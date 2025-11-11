@@ -1,5 +1,4 @@
 "use client";
-import Title from "@/components/title/title";
 import ClassCard from "@/components/class_card/class_card";
 import "./turmas.css";
 
@@ -10,7 +9,7 @@ export default function Turma() {
         <div className="container-lembrete-turmas">
           <div className="container-header-turmas">
             <div className="container-texto">
-              <Title text="Turmas"></Title>
+              <h1>turmas</h1>
             </div>
             <div className="container-turmas">
               <ClassCard
