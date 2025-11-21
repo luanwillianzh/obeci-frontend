@@ -71,7 +71,7 @@ export default function CadastroProfessor() {
         /* Container principal que imita o 'body' */
         .page-container {
           background: #fff8f8;
-          font-family: 'Nunito', sans-serif;
+          font-family: "Nunito", sans-serif;
           min-height: 70vh;
           display: flex;
           justify-content: center;

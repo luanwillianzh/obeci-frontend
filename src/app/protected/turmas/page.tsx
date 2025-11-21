@@ -1,6 +1,7 @@
 "use client";
 import ClassCard from "@/components/class_card/class_card";
 import "./turmas.css";
+import ProtectedLayout from "../layout";
 
 export default function Turma() {
   return (
@@ -9,7 +10,7 @@ export default function Turma() {
         <div className="container-lembrete-turmas">
           <div className="container-header-turmas">
             <div className="container-texto">
-              <h1>turmas</h1>
+              <h1>teste</h1>
             </div>
             <div className="container-turmas">
               <ClassCard
@@ -122,27 +123,7 @@ export default function Turma() {
               ></ClassCard>
             </div>
           </div>
-          <div className="lembrete">
-            <h2>Lembretes</h2>
-            <textarea
-              className="lembrete-textarea"
-              placeholder="Digite seus lembretes..."
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement;
-                target.style.height = "auto";
-                target.style.height = `${target.scrollHeight}px`;
-              }}
-            />
-            <textarea
-              className="lembrete-textarea"
-              placeholder="Digite seus lembretes..."
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement;
-                target.style.height = "auto";
-                target.style.height = `${target.scrollHeight}px`;
-              }}
-            />
-          </div>
+          <div className="lembrete"></div>
         </div>
       </div>
     </>
