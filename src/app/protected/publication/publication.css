@@ -1,182 +1,289 @@
-.page-container {
+.editor-container {
   display: flex;
   width: 100%;
-  min-height: 88vh;
-  background: #fff8f8;
-  font-family: "Nunito", sans-serif; /* Assumindo a mesma fonte */
+  height: calc(100vh - 80px); /* Ajuste conforme altura do header se houver */
+  background: #f0f0f0;
+  font-family: "Nunito", sans-serif;
+  overflow: hidden;
 }
 
-/* --- Sidebar (Alunos) --- */
-.sidebar {
-  flex-basis: 300px; /* Largura da sidebar */
-  flex-shrink: 0; /* Impede que a sidebar encolha */
-  padding: 2.5rem;
-  box-sizing: border-box;
-  border-right: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-.sidebar-title {
-  font-size: 3.5rem;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 2rem;
-}
-
-.student-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* --- Sidebar Esquerda (Miniaturas) --- */
+.thumbnails-sidebar {
+  width: 220px;
+  background: #e0e0e0;
+  border-right: 1px solid #ccc;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  padding: 1rem;
+  gap: 1rem;
+  overflow-y: auto;
 }
 
-.student-item {
+.thumbnail-item {
   display: flex;
-  align-items: center;
-  font-size: 2rem;
-  color: #555;
-  padding: 0.5rem;
-  border-radius: 8px;
+  flex-direction: column;
+  gap: 0.5rem;
   cursor: pointer;
-  transition: background 0.2s;
-}
-
-.student-item:hover {
-  background: #fdeee6;
-}
-
-.student-item.active {
-  color: #f8894a;
-  font-weight: 700;
-}
-
-.student-item span {
-  /* Placeholder para o ícone */
-  margin-right: 0.75rem;
-  color: #f8894a;
-}
-
-.delete-btn {
-  margin-left: auto; /* Mágica do Flexbox para empurrar para a direita */
-  background: none;
-  border: none;
-  color: #e53e3e;
-  cursor: pointer;
-  font-size: 1.1rem;
-  visibility: hidden; /* Escondido por padrão */
-  opacity: 0;
+  opacity: 0.7;
   transition: opacity 0.2s;
 }
 
-.student-item:hover .delete-btn,
-.student-item.active .delete-btn {
-  visibility: visible; /* Aparece no hover ou se ativo */
+.thumbnail-item.active {
   opacity: 1;
 }
 
-/* --- Main Content (Publicações) --- */
-.main-content {
-  flex-grow: 1; /* Ocupa todo o espaço restante */
-  padding: 2.5rem;
-  box-sizing: border-box;
-  /* Posição relativa para ancorar o botão flutuante */
+.thumbnail-item.active .thumbnail-preview {
+  border: 2px solid #f8894a;
+}
+
+.thumbnail-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  overflow: hidden;
   position: relative;
+  pointer-events: none; /* Impede interação na miniatura */
+  transform: scale(1); /* Hack para renderizar conteúdo */
 }
 
-.main-title {
-  font-size: 5rem;
-  font-weight: 700;
-  color: #000;
-  margin-bottom: 2rem;
+.thumbnail-preview > div {
+  transform: scale(0.2); /* Reduz o conteúdo para caber na miniatura */
+  transform-origin: top left;
+  width: 500%; /* Compensa o scale */
+  height: 500%;
+  padding: 2rem;
 }
 
-.feed-container {
-  background: #fff1eb; /* Cor rosa claro do container */
-  border-radius: 25px;
+.slide-number {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: bold;
+}
+
+.add-slide-btn {
+  padding: 0.5rem;
+  background: #f8894a;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  margin-top: 1rem;
+}
+
+.add-slide-btn:hover {
+  background: #d97c50;
+}
+
+/* --- Área Central (Editor) --- */
+.editor-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #dcdcdc;
+}
+
+.toolbar {
+  height: 50px;
+  background: white;
+  border-bottom: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  gap: 1rem;
+}
+
+.toolbar select,
+.toolbar button,
+.image-upload-btn {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f9f9f9;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.toolbar button:hover,
+.image-upload-btn:hover {
+  background: #eee;
+}
+
+.image-upload-btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+.slide-canvas-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  overflow-y: auto;
+  gap: 2rem;
+}
+
+.slide-canvas {
+  width: 960px; /* Tamanho fixo de slide */
+  height: 540px; /* Aspect ratio 16:9 */
+  background: white;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  padding: 3rem;
+  outline: none;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  transition: box-shadow 0.3s;
+}
+
+.slide-canvas.active-slide {
+  box-shadow: 0 0 0 4px rgba(248, 137, 74, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* --- Sidebar Direita (Opções) --- */
+.options-sidebar {
+  width: 300px;
+  background: white;
+  border-left: 1px solid #ccc;
   padding: 2rem;
   display: flex;
   flex-direction: column;
-  gap: 2rem; /* Espaço entre os posts */
+  gap: 2rem;
 }
 
-.post-card {
-  background: #ffffff;
-  border-radius: 15px;
-  padding: 1.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-}
-
-.post-header {
-  display: flex;
-  align-items: center;
-  font-size: 2.35rem;
-  font-weight: 600;
-  color: #f8894a;
-  margin-bottom: 1rem;
-}
-
-.post-header span {
-  margin-right: 0.75rem;
-}
-
-.post-body {
-  display: flex;
-  gap: 1.5rem;
-}
-
-.post-text {
-  flex: 1; /* Ocupa 50% ou mais se a galeria for menor */
-  line-height: 1.6;
+.options-group h3 {
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
   color: #333;
-  font-size: 1.5rem;
 }
 
-/* --- Galeria com CSS Grid --- */
-.post-gallery {
-  flex-basis: 50%; /* Define a largura base da galeria */
-  display: grid;
-  /* 2 colunas de texto, 1fr 1fr para as imagens pequenas */
-  grid-template-columns: 2fr 1fr 1fr;
-  grid-template-rows: 1fr 1fr; /* Duas linhas de altura igual */
-  gap: 0.5rem;
+.instrument-select {
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-family: inherit;
 }
 
-.gallery-placeholder {
-  background: #eee;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  color: #aaa;
-  font-size: 1.5rem;
-  min-height: 100px;
+.tags-input {
+  width: 100%;
+  height: 150px;
+  padding: 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
 }
 
-.placeholder-main {
-  /* A imagem principal ocupa a 1ª coluna e as 2 linhas */
-  grid-column: 1 / 2;
-  grid-row: 1 / 3;
-  min-height: 210px; /* (100px * 2) + 0.5rem gap */
+/* --- Cropper --- */
+.cropper-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.8);
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-/* --- Botão Flutuante --- */
-.new-post-btn {
-  position: absolute; /* Ancorado no .main-content */
-  bottom: 2.5rem;
-  right: 2.5rem;
+.cropper-container {
+  position: relative;
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cropper-image-wrapper {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  max-height: 80vh;
+  max-width: 80vw;
+}
+
+.cropper-image-wrapper img {
+  max-width: 100%;
+  max-height: 80vh;
+  display: block;
+}
+
+.crop-box {
+  position: absolute;
+  border: 2px solid #f8894a;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+  cursor: move;
+}
+
+.crop-handle {
+  position: absolute;
+  width: 15px;
+  height: 15px;
   background: #f8894a;
-  color: #000;
-  font-weight: 600;
-  border: none;
-  border-radius: 50px;
-  padding: 1rem 1.75rem;
-  font-size: 1.7rem;
-  cursor: pointer;
-  box-shadow: 0 5px 15px rgba(248, 137, 74, 0.4);
-  transition: all 0.2s ease-in-out;
+  bottom: -7px;
+  right: -7px;
+  cursor: se-resize;
 }
 
-.new-post-btn:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(248, 137, 74, 0.5);
+.cropper-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cropper-actions button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.cropper-actions button:first-child {
+  background: #f8894a;
+  color: white;
+}
+
+.cropper-actions button:last-child {
+  background: #ccc;
+  color: #333;
+}
+
+.image-toolbar {
+  position: absolute;
+  top: -35px;
+  right: 0;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  display: flex;
+  gap: 5px;
+  padding: 5px;
+  z-index: 100;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.image-toolbar button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.image-toolbar button:hover {
+  background: #eee;
 }

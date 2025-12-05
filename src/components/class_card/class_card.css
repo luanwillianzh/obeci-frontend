@@ -19,27 +19,27 @@
     margin-bottom: 0.5rem;
   }
 
-  & .turno {
+  & .professora {
     margin-left: 2.5rem;
     font-family: "Nunito";
     font-style: normal;
     font-weight: 400;
-    font-size: 3.2rem;
+    font-size: 2.4rem;
     color: #000000;
   }
 
-  & .q_alunos {
+  & .info-menor {
     margin-left: 2.5rem;
     font-family: "Nunito";
     font-style: normal;
     font-weight: 400;
-    font-size: 3.2rem;
+    font-size: 1.8rem;
     color: #000000;
   }
 
   & .ancora {
-    margin-top: 4rem;
-    margin-left: 16rem;
+    margin-top: auto;
+    align-self: center;
     width: 17.3rem;
     height: 3.7rem;
     font-size: 2rem;
