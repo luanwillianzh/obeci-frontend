@@ -18,7 +18,7 @@ export default function ProtectedLayout({
 
   return (
     <>
-      <Header user={user} loading={loading} logout={logout} />
+      <Header loading={loading} logout={logout} />
       <main>{loading ? "Carregando..." : children}</main>
     </>
   );

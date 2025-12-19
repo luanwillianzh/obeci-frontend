@@ -26,6 +26,7 @@
   cursor: pointer;
   opacity: 0.7;
   transition: opacity 0.2s;
+  position: relative;
 }
 
 .thumbnail-item.active {
@@ -37,7 +38,7 @@
 }
 
 .thumbnail-preview {
-  width: 100%;
+  width: 100%; /* dynamic width; scale computed in component */
   aspect-ratio: 16 / 9;
   background: white;
   border: 1px solid #ccc;
@@ -49,17 +50,40 @@
 }
 
 .thumbnail-preview > div {
-  transform: scale(0.2); /* Reduz o conteúdo para caber na miniatura */
-  transform-origin: top left;
-  width: 500%; /* Compensa o scale */
-  height: 500%;
-  padding: 2rem;
+  /* inner scaling handled in component */
 }
 
 .slide-number {
   font-size: 0.9rem;
   color: #666;
   font-weight: bold;
+}
+
+.delete-slide-btn {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: #ff4d4d;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.thumbnail-item:hover .delete-slide-btn {
+  opacity: 1;
+}
+
+.delete-slide-btn:hover {
+  background: #cc0000;
 }
 
 .add-slide-btn {
@@ -97,13 +121,19 @@
 
 .toolbar select,
 .toolbar button,
+.toolbar input[type="number"],
 .image-upload-btn {
-  padding: 0.4rem 0.8rem;
+  padding: 5px 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
   background: #f9f9f9;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 14px;
+  height: 32px;
+}
+
+.toolbar input[type="number"] {
+  width: 100px;
 }
 
 .toolbar button:hover,
@@ -131,12 +161,32 @@
   height: 540px; /* Aspect ratio 16:9 */
   background: white;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-  padding: 3rem;
+  padding: 0; /* Sem padding interno para permitir encostar nas bordas */
   outline: none;
-  overflow: hidden;
+  overflow: hidden; /* Parte de fora do slide cobre qualquer overflow */
   position: relative;
   flex-shrink: 0;
   transition: box-shadow 0.3s;
+}
+
+/* Garante que a área externa tenha prioridade máxima na pilha */
+.editor-container,
+.slide-canvas-container {
+  position: relative;
+  z-index: 999999; /* o máximo possível para cobrir elementos fora do slide */
+}
+
+/* Modais devem sempre ficar acima de tudo */
+.modal-root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000000; /* acima da área externa do slide */
 }
 
 .slide-canvas.active-slide {
@@ -173,7 +223,7 @@
   width: 100%;
   height: 150px;
   padding: 0.8rem;
-  border: 1px solid #ccc;
+  border: 1px solid #cccccc00;
   border-radius: 4px;
   font-size: 1rem;
   font-family: inherit;
@@ -187,7 +237,7 @@
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0,0,0,0.8);
+  background: rgba(0, 0, 0, 0.8);
   z-index: 9999;
   display: flex;
   justify-content: center;
@@ -229,12 +279,32 @@
 
 .crop-handle {
   position: absolute;
-  width: 15px;
-  height: 15px;
-  background: #f8894a;
-  bottom: -7px;
-  right: -7px;
+  background: rgba(248, 137, 74, 0.7);
+}
+
+.crop-handle.right {
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: e-resize;
+}
+
+.crop-handle.bottom {
+  left: 0;
+  bottom: -3px;
+  width: 100%;
+  height: 6px;
+  cursor: s-resize;
+}
+
+.crop-handle.bottom-right {
+  right: -5px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
   cursor: se-resize;
+  border-radius: 2px;
 }
 
 .cropper-actions {
@@ -272,7 +342,7 @@
   gap: 5px;
   padding: 5px;
   z-index: 100;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
 .image-toolbar button {
@@ -286,4 +356,39 @@
 
 .image-toolbar button:hover {
   background: #eee;
+}
+
+.textbox-toolbar {
+  position: absolute;
+  top: -35px;
+  right: 0;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  display: flex;
+  gap: 5px;
+  padding: 5px;
+  z-index: 100;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.textbox-toolbar button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.textbox-toolbar button:hover {
+  background: #eee;
+}
+
+/* Evita o arrasto nativo de imagens do navegador */
+.draggable-image-container img,
+.thumbnail-preview img,
+.modal-root img {
+  -webkit-user-drag: none;
+  user-select: none;
 }

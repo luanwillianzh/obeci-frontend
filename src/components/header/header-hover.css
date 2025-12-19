@@ -1,0 +1,199 @@
+.header-obeci {
+  width: 100%;
+  min-height: 64px;
+  height: 12dvh;
+  background-color: var(--cor1-obeci);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 2.5rem;
+  transition: all 0.5s ease-in-out;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1000;
+}
+
+.header-obeci.hovered {
+  height: calc(12dvh + 5rem);
+  align-items: flex-start;
+}
+
+.container-imagem-obeci {
+  width: clamp(140px, 15vw, 226px);
+  height: auto;
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+}
+
+.container-imagem-obeci img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.icon-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  font-size: 3.5rem;
+  color: var(--cor4-obeci);
+
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
+
+  position: absolute;
+  top: 50%;
+  right: 2.5rem;
+  transform: translateY(-50%);
+}
+
+.nav-links-group {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  font-size: 3rem;
+  font-weight: 300;
+
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.5s ease-in-out, visibility 0.5s ease-in-out;
+
+  position: absolute;
+  bottom: 2rem;
+  right: 2.5rem;
+  z-index: 1001;
+}
+
+.nav-link {
+  color: var(--font-color-default);
+  padding: 0.5rem 0.25rem;
+  cursor: pointer;
+  transition: color 0.2s;
+  white-space: nowrap;
+}
+
+.nav-link.active {
+  color: var(--cor4-obeci);
+  border-bottom: 3px solid var(--cor4-obeci);
+}
+
+.bloco-logout {
+  border-radius: 5rem;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: ease-in all 0.2s;
+  cursor: pointer;
+
+  & a {
+    border-radius: 5rem;
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: ease-in all 0.2s;
+    cursor: pointer;
+    color: var(--cor4-obeci);
+  }
+}
+
+.bloco-logout:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.header-obeci.hovered .nav-links-group,
+.header-obeci.hovered .icon-group {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.header-obeci.hovered .icon-group {
+  top: 2.5rem;
+  transform: translateY(0);
+}
+
+/* Hide mobile toggle by default (desktop) */
+.menu-toggle {
+  display: none;
+}
+
+/* Login page: ensure logo height equals header bar height */
+.header-obeci.login {
+  height: 12dvh; /* keep consistent bar height on login */
+}
+.header-obeci.login .container-imagem-obeci {
+  height: 100%;
+}
+.header-obeci.login .container-imagem-obeci img {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+  .header-obeci {
+    height: auto;
+    padding: 0.75rem 1rem;
+  }
+  .container-imagem-obeci {
+    width: clamp(120px, 40vw, 180px);
+    align-self: center;
+  }
+
+  .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--cor4-obeci);
+    padding: 0.5rem;
+    margin-left: auto;
+    cursor: pointer;
+  }
+
+  /* Stack menu when open */
+  .icon-group,
+  .nav-links-group {
+    position: static;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .header-obeci.open .icon-group,
+  .header-obeci.open .nav-links-group {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .icon-group {
+    margin-top: 0.5rem;
+    gap: 1rem;
+    font-size: 2.4rem;
+    order: 3;
+  }
+  .nav-links-group {
+    flex-wrap: wrap;
+    gap: 1rem 1.5rem;
+    font-size: 2rem;
+    margin-top: 0.75rem;
+    order: 2;
+  }
+
+  /* Disable hover expansion on mobile */
+  .header-obeci.hovered .nav-links-group,
+  .header-obeci.hovered .icon-group {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}

@@ -1,0 +1,202 @@
+.admin-page-container {
+  background-color: #fff8f8;
+  width: 100%;
+  min-height: 88vh;
+  display: flex;
+  padding: 6rem 5rem 2rem 5rem;
+  box-sizing: border-box;
+}
+
+.sidebar-admin {
+  width: 20rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  position: relative;
+  padding-right: 5rem;
+}
+
+.admin-tab-button {
+  background: #fce8e1;
+  border: none;
+  cursor: pointer;
+  font-size: 3rem;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 2rem;
+  margin-top: 3rem;
+  padding: 1.5rem 1rem;
+  text-align: left;
+  width: 120%;
+  border-radius: 0.5rem;
+  transition: background-color 0.3s, font-weight 0.3s;
+}
+
+.admin-tab-button:hover {
+  background-color: #f8e8e1;
+}
+
+.admin-tab-button.active-tab {
+  background-color: #f8894a;
+  color: black;
+  font-weight: 300;
+}
+
+.sidebar-separator {
+  width: 0.2rem;
+  height: 100%;
+  background-color: #f8894a;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.content-admin {
+  flex-grow: 1;
+  padding-left: 5rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding-top: 1rem;
+}
+
+.content-title {
+  font-size: 4rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.new-button {
+  padding: 1.5rem 3rem;
+  background-color: #f8894a;
+  color: rgb(0, 0, 0);
+  border: none;
+  border-radius: 5rem;
+  font-size: 2.5rem;
+  font-weight: 300;
+  cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: opacity 0.3s;
+}
+
+.new-button:hover {
+  opacity: 0.85;
+}
+
+.search-input-container {
+  position: relative;
+  width: 100%;
+  max-width: 70rem;
+  margin-bottom: 4rem;
+}
+
+.search-input {
+  width: 100%;
+  padding: 1.5rem 1.5rem 1.5rem 5.5rem;
+  font-size: 2rem;
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.3s;
+  border-radius: 3rem;
+  border: solid 1px black;
+}
+
+.search-input:focus {
+  border-color: #f8894a;
+}
+
+.search-icon {
+  position: absolute;
+  left: 1.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #999;
+}
+
+.card-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3rem;
+}
+
+.admin-card {
+  width: 30rem;
+  padding: 2rem;
+  background-color: white;
+  border-radius: 1.5rem;
+  border: 1px solid #f0f0f0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  position: relative;
+}
+
+.card-text {
+  font-size: 2.2rem;
+  color: #666;
+  line-height: 1.4;
+  margin-bottom: 0.5rem;
+}
+
+.card-text strong {
+  color: #333;
+}
+
+.card-edit-icon {
+  color: #f8894a;
+  cursor: pointer;
+  margin-right: 3rem;
+}
+
+.profile-list-container {
+  width: 100%;
+}
+
+.profile-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 0;
+  position: relative;
+}
+
+.profile-info-group {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.profile-icon {
+  background-color: #e0e0e0;
+  border-radius: 50%;
+  padding: 1rem;
+  width: 6rem;
+  height: 6rem;
+}
+
+.profile-name {
+  font-size: 3rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.profile-card-separator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #e0e0e0;
+  margin: 0;
+}
+
+.placeholder-text {
+  font-size: 2rem;
+  color: #999;
+  margin-top: 2rem;
+}

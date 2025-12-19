@@ -1,0 +1,87 @@
+.pageContainer {
+  background: #fff8f8;
+  font-family: "Nunito", sans-serif;
+  min-height: 70vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 2.8rem;
+  box-sizing: border-box;
+}
+
+.cadastroForm {
+  width: 114.31rem;
+  max-width: 100%;
+  background: #f2b694;
+  border-radius: 3.5rem;
+  padding: 3.5rem;
+  box-sizing: border-box;
+}
+
+.title {
+  font-weight: 400;
+  font-size: 4.48rem;
+  line-height: 6.09rem;
+  color: #000;
+  text-align: center;
+  margin-bottom: 2.8rem;
+}
+
+.formColumns {
+  display: flex;
+  justify-content: space-between;
+  gap: 2.8rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 48%;
+  gap: 1.75rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-weight: 400;
+  font-size: 2.52rem;
+  line-height: 3.43rem;
+  color: #000;
+  margin-bottom: 0.7rem;
+}
+
+.rect {
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 0.07rem solid #000;
+  box-shadow: 0rem 0.28rem 0.28rem rgba(0, 0, 0, 0.25);
+  border-radius: 3.5rem;
+  width: 100%;
+  height: 4.2rem;
+  padding: 0 1.4rem;
+  font-size: 1.96rem;
+}
+
+.rectTextarea {
+  height: 8.33rem;
+  padding: 1.05rem 1.4rem;
+  resize: vertical;
+}
+
+.btnCadastrar {
+  width: 32.41rem;
+  height: 5.88rem;
+  background: #f8894a;
+  border: none;
+  border-radius: 3.5rem;
+  font-size: 3.36rem;
+  color: #000;
+  cursor: pointer;
+  display: block;
+  margin: 2.8rem auto 0;
+}

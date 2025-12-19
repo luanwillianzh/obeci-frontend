@@ -28,6 +28,21 @@
         overflow-x: hidden;
       }
 
+      /* Mensagem de estado vazio (sem turmas) */
+      & .container-turmas .empty-message {
+        width: 100%;
+        min-height: 24rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        font-size: clamp(2rem, 3.5vw, 3.2rem);
+        color: #222;
+        background: rgba(0, 0, 0, 0.03);
+        border-radius: 1.5rem;
+        padding: 3rem 1.5rem;
+      }
+
       & .grupo-escola {
         width: 100%;
         display: flex;
@@ -52,7 +67,7 @@
       & .linha-ofuscada {
         flex: 1;
         height: 2px;
-        background: linear-gradient(90deg, #000 0%, rgba(0,0,0,0) 100%);
+        background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0) 100%);
         opacity: 0.5;
       }
 
@@ -161,4 +176,82 @@
 
 .botao-salvar:hover {
   background-color: var(--cor4-obeci);
+}
+
+/* Responsividade */
+@media (max-width: 1200px) {
+  .container-principal-turmas .container-lembrete-turmas {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .container-principal-turmas
+    .container-lembrete-turmas
+    .container-header-turmas {
+    width: 100%;
+    height: auto;
+  }
+  .container-principal-turmas
+    .container-lembrete-turmas
+    .container-header-turmas
+    .container-turmas {
+    height: auto;
+    max-height: 70vh;
+  }
+  .lembrete {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border-radius: 2rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .container-principal-turmas .container-lembrete-turmas {
+    margin: 1.5rem;
+    gap: 1.5rem;
+  }
+  .container-principal-turmas
+    .container-lembrete-turmas
+    .container-header-turmas
+    .separator-escola
+    h4 {
+    font-size: 2rem;
+  }
+  .container-principal-turmas
+    .container-lembrete-turmas
+    .container-header-turmas
+    .turmas-grid {
+    gap: 2rem;
+  }
+  .container-principal-turmas
+    .container-lembrete-turmas
+    .container-header-turmas
+    .container-turmas
+    .empty-message {
+    min-height: 18rem;
+    font-size: clamp(1.8rem, 5vw, 2.4rem);
+    padding: 2rem 1rem;
+  }
+  .lembrete {
+    padding: 1.5rem;
+    gap: 1rem;
+  }
+  .lembrete h2 {
+    font-size: 2.2rem;
+  }
+  .botao-salvar {
+    font-size: 1.4rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .container-principal-turmas
+    .container-lembrete-turmas
+    .container-header-turmas
+    .container-turmas {
+    padding: 1.5rem;
+  }
+  .lembrete-textarea {
+    min-height: 48px;
+  }
 }

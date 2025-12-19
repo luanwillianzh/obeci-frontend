@@ -1,6 +1,7 @@
 export interface User {
   email: string;
   name: string;
+  roles?: string[]; // ex.: ["ADMIN", "PROFESSOR"]
 }
 
 export interface LoginSuccess {
@@ -26,6 +27,9 @@ export interface AuthContextType {
   login: LoginFunction;
   logout: LogoutFunction;
   loading: boolean;
+  isAdmin?: boolean;
+  isProfessor?: boolean;
+  hasRole?: (role: string) => boolean;
 }
 
 export interface HeaderProps {
