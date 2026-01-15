@@ -244,11 +244,11 @@ const ImageCropper = ({
         newY = Math.max(0, Math.min(newY, rect.height - crop.height));
         setCrop((c) => ({ ...c, x: newX, y: newY }));
       } else if (isResizing) {
-        let newW = Math.max(
+        const newW = Math.max(
           20,
           Math.min(e.clientX - rect.left - crop.x, rect.width - crop.x)
         );
-        let newH = Math.max(
+        const newH = Math.max(
           20,
           Math.min(e.clientY - rect.top - crop.y, rect.height - crop.y)
         );
@@ -375,7 +375,7 @@ const ImageCropper = ({
           <button
             onClick={confirmCrop}
             style={{
-              background: "#4CAF50",
+              background: "#f8894a",
               color: "white",
               padding: "8px 12px",
               borderRadius: 4,
@@ -387,7 +387,7 @@ const ImageCropper = ({
           <button
             onClick={onCancel}
             style={{
-              background: "#999",
+              background: "#e9665c",
               color: "white",
               padding: "8px 12px",
               borderRadius: 4,
@@ -2853,7 +2853,7 @@ export default function PublicacoesPage() {
             onChange={(e) => setFilterTag(e.target.value)}
             placeholder="Pesquisar por tag"
             style={{
-              padding: "6px 8px",
+              padding: "8px 10px",
               borderRadius: 4,
               border: "1px solid #ccc",
             }}
@@ -2862,7 +2862,7 @@ export default function PublicacoesPage() {
             value={filterInstrument}
             onChange={(e) => setFilterInstrument(e.target.value)}
             style={{
-              padding: "6px 8px",
+              padding: "8px 10px",
               borderRadius: 4,
               border: "1px solid #ccc",
             }}
@@ -2920,7 +2920,7 @@ export default function PublicacoesPage() {
               {
                 id: Date.now(),
                 content: "Novo Slide",
-                styles: { fontSize: "24px", fontFamily: "Nunito" },
+                styles: { fontSize: "24px", fontFamily: "Nunito"},
                 textBoxes: [],
                 images: [],
               },
@@ -2947,13 +2947,14 @@ export default function PublicacoesPage() {
             aria-live="polite"
             style={{
               minWidth: 80,
+              fontSize: 15,
               display: "inline-block",
               color:
                 saveStatus === "error"
                   ? "#c62828"
                   : saveStatus === "saved"
                   ? "#2e7d32"
-                  : "#555",
+                  : "#130b0b",
             }}
           >
             {saveStatus === "saved"
@@ -3125,7 +3126,7 @@ export default function PublicacoesPage() {
       {/* Lateral Direita: Opções */}
       <aside className="options-sidebar">
         <div className="options-group">
-          <h3>Instrumento</h3>
+          <h2>Instrumento</h2>
           <select
             value={currentSlide?.instrument ?? ""}
             onChange={(e) => {
@@ -3174,7 +3175,7 @@ export default function PublicacoesPage() {
         </div>
 
         <div className="options-group">
-          <h3>Tags</h3>
+          <h2>Tags</h2>
           {/* Tags do slide selecionado */}
           {slideTags.length > 0 && (
             <div
@@ -3193,10 +3194,10 @@ export default function PublicacoesPage() {
                     alignItems: "center",
                     gap: 6,
                     padding: "4px 10px",
-                    border: "2px solid #2196F3",
+                    border: "2px solid #f5a779",
                     borderRadius: 16,
-                    color: "#0b3c73",
-                    background: "#E8F3FF",
+                    color: "#000000",
+                    background: "#f5d1bc",
                     fontSize: 13,
                     fontWeight: 600,
                   }}
@@ -3218,7 +3219,7 @@ export default function PublicacoesPage() {
                     style={{
                       background: "transparent",
                       border: 0,
-                      color: "#0b3c73",
+                      color: "#f8894a",
                       cursor: "pointer",
                       fontSize: 14,
                       lineHeight: 1,
@@ -3259,10 +3260,10 @@ export default function PublicacoesPage() {
             onClick={exportToJSON}
             style={{
               width: "100%",
-              padding: "10px",
+              padding: "15px",
               marginBottom: "10px",
-              backgroundColor: "#2196F3",
-              color: "white",
+              backgroundColor: "#f8894a",
+              color: "black",
               border: "none",
               borderRadius: "4px",
               cursor: "pointer",
@@ -3275,9 +3276,10 @@ export default function PublicacoesPage() {
             style={{
               display: "block",
               width: "100%",
-              padding: "10px",
-              backgroundColor: "#4CAF50",
-              color: "white",
+              padding: "13px",
+              backgroundColor: "#f7b995",
+              color: "black",
+              fontSize: "1.3rem",
               border: "none",
               borderRadius: "4px",
               cursor: "pointer",
@@ -3403,7 +3405,7 @@ export default function PublicacoesPage() {
                 style={{
                   flex: 1,
                   padding: "10px",
-                  backgroundColor: "#4CAF50",
+                  backgroundColor: "#f8894a",
                   color: "white",
                   border: "none",
                   borderRadius: "4px",
@@ -3417,7 +3419,7 @@ export default function PublicacoesPage() {
                 style={{
                   flex: 1,
                   padding: "10px",
-                  backgroundColor: "#f44336",
+                  backgroundColor: "#e9665c",
                   color: "white",
                   border: "none",
                   borderRadius: "4px",

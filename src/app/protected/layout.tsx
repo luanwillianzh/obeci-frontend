@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import Header from "@/components/header/header";
 import { useAuth } from "@/contexts/useAuth";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
+import "@/app/globals.css";
 
 export default function ProtectedLayout({
   children,
@@ -10,16 +12,34 @@ export default function ProtectedLayout({
   children: React.ReactNode;
 }) {
   const { user, loading, logout } = useAuth();
+  const router = useRouter();
 
-  // ❌ não some com layout inteiro
-  if (!loading && !user) {
-    redirect("/login");
+  useEffect(() => {
+    // Só redireciona se o carregamento terminou e realmente não há usuário
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user) {
+    return (
+      <>
+        <Header loading={loading} logout={logout} />
+        <div className="loading-screen-container">
+          <div className="loading-content">
+            <div className="spinner-obeci"></div>
+            <h2 className="loading-text">Carregando...</h2>
+          </div>
+        </div>
+      </>
+    );
   }
 
+  // Se chegou aqui, o usuário está logado
   return (
     <>
       <Header loading={loading} logout={logout} />
-      <main>{loading ? "Carregando..." : children}</main>
+      <main>{children}</main>
     </>
   );
 }
