@@ -1,5 +1,21 @@
 "use client";
 
+/**
+ * `src/components/header/header.tsx`
+ *
+ * Propósito geral:
+ * - Header global da aplicação.
+ * - Exibe navegação para rotas protegidas e ações do usuário (perfil/logout).
+ *
+ * Regras de UI:
+ * - Na rota `/login`, o header é renderizado “simplificado” (sem nav).
+ * - O link de administração só aparece para usuários com role ADMIN.
+ *
+ * Dependências relevantes:
+ * - `usePathname()` para destacar link ativo e identificar se está em `/login`.
+ * - `useAuth()` para controlar visibilidade de itens restritos (ADMIN).
+ */
+
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -12,6 +28,13 @@ interface HeaderProps {
   logout?: () => void;
 }
 
+/**
+ * Componente de header.
+ *
+ * Entrada:
+ * - `logout`: callback disparado ao clicar no ícone de logout.
+ * - `loading`: atualmente não é usado para condicionar UI aqui (mantido por compatibilidade).
+ */
 export default function Header({ logout }: HeaderProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const { isAdmin } = useAuth();
@@ -19,6 +42,7 @@ export default function Header({ logout }: HeaderProps) {
   const currentPath = usePathname() || "/";
   const isLogin = currentPath === "/login";
 
+  /** Marca a rota atual como ativa para aplicação de estilos. */
   const isActive = (path: string) => currentPath === path;
 
   const DADOS_PATH = "/protected/user";

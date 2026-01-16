@@ -1,3 +1,10 @@
+/*
+ * `src/components/cadastroescola/CadastroEscola.module.css`
+ *
+ * Propósito geral:
+ * - Estilos encapsulados do formulário de cadastro/edição de Escola.
+ */
+
 .pageContainer {
   background: #f2b694;
   font-family: "Nunito", sans-serif;

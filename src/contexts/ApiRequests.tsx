@@ -1,11 +1,37 @@
 "use client";
 
+/**
+ * `src/contexts/ApiRequests.tsx`
+ *
+ * Propósito geral:
+ * - Centralizar a construção de requests HTTP (`fetch`) para o backend.
+ * - Padronizar base URL, headers, serialização de body e `credentials: "include"`.
+ * - Expor uma API minimalista (`Api`) e uma camada de endpoints (`Requests`).
+ *
+ * Pontos críticos:
+ * - Usa `credentials: "include"` para enviar cookies (ex.: sessão HttpOnly).
+ * - Em certos erros 4xx no endpoint `/auth/me`, marca `sessionExpired` no `localStorage`.
+ *
+ * Dependências relevantes:
+ * - Variável de ambiente `NEXT_PUBLIC_API_URL`.
+ * - Web APIs: `fetch`, `FormData`, `localStorage`.
+ */
+
 export type JsonBody =
   | Record<string, unknown>
   | Array<unknown>
   | string
   | FormData;
 
+/**
+ * Resolve e normaliza a base URL da API a partir do ambiente.
+ *
+ * Saída:
+ * - string sem barra final (ex.: `https://api.exemplo.com`).
+ *
+ * Exceções:
+ * - Lança `Error` se `NEXT_PUBLIC_API_URL` não estiver definido.
+ */
 function getBaseUrl(): string {
   const base = process.env.NEXT_PUBLIC_API_URL;
   if (!base)
@@ -15,6 +41,20 @@ function getBaseUrl(): string {
   return base.replace(/\/$/, "");
 }
 
+/**
+ * Monta um `RequestInit` consistente para todos os métodos HTTP.
+ *
+ * Entrada:
+ * - `method`: verbo HTTP
+ * - `body`: payload opcional (JSON, string ou FormData)
+ * - `init`: overrides do `fetch`
+ *
+ * Saída:
+ * - `RequestInit` com `credentials: "include"` e headers adequados.
+ *
+ * Observação:
+ * - Para `FormData`, não setamos `Content-Type` manualmente para não quebrar boundary.
+ */
 function buildInit(
   method: string,
   body?: JsonBody,
@@ -48,11 +88,24 @@ function buildInit(
   return final;
 }
 
+/**
+ * Wrapper de `fetch` que prefixa a base URL e garante `credentials: "include"`.
+ *
+ * Entrada:
+ * - `path`: caminho relativo (com ou sem `/` inicial)
+ * - `init`: init final do fetch
+ */
 async function doFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = `${getBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
   return fetch(url, { credentials: "include", ...init });
 }
 
+/**
+ * Cliente HTTP mínimo (GET/POST/PUT/DELETE).
+ *
+ * Observação:
+ * - Mantém o retorno como `Response` para o chamador decidir como parsear (json/text/blob).
+ */
 export const Api = {
   get(path: string, init?: RequestInit) {
     return doFetch(path, buildInit("GET", undefined, init));
@@ -68,7 +121,12 @@ export const Api = {
   },
 };
 
-// Convenience typed helpers (optional usage)
+/**
+ * Tipos auxiliares (payloads) para requests.
+ *
+ * Observação:
+ * - Alguns campos são opcionais porque variam entre criação/atualização.
+ */
 export type UsuarioPayload = {
   username: string;
   email: string;
@@ -104,11 +162,37 @@ export type UsuarioSelfUpdatePayload = {
   cpf?: string;
 };
 
+/**
+ * Camada de endpoints do backend.
+ *
+ * Responsabilidade:
+ * - Encapsular paths e métodos HTTP.
+ * - Não faz parse de JSON por padrão (retorna `Response`).
+ *
+ * Efeitos colaterais importantes:
+ * - `me()` pode chamar `/auth/logout` em caso de 4xx e escrever no `localStorage`.
+ */
 export const Requests = {
   // Auth
+  /**
+   * Realiza login.
+   *
+   * Entrada:
+   * - `email`, `password`
+   *
+   * Saída:
+   * - `Response` do backend.
+   */
   login(email: string, password: string) {
     return Api.post("/auth/login", { email, password });
   },
+  /**
+   * Obtém o usuário autenticado (sessão atual).
+   *
+   * Regra de proteção:
+   * - Em status 4xx, assume sessão inválida e tenta forçar logout no backend,
+   *   além de sinalizar expiração via `localStorage`.
+   */
   me() {
     return (async () => {
       const res = await Api.get("/auth/me");
@@ -125,8 +209,23 @@ export const Requests = {
       return res;
     })();
   },
+  /** Atualiza dados do usuário autenticado (endpoint `/auth/me`). */
   updateMe(payload: UsuarioSelfUpdatePayload) {
     return Api.put("/auth/me", payload);
+  },
+
+  // Lembretes do próprio usuário
+  listMyLembretes() {
+    return Api.get("/auth/me/lembretes");
+  },
+  addMyLembrete(text: string) {
+    return Api.post("/auth/me/lembretes", { text });
+  },
+  updateMyLembrete(index: number, text: string) {
+    return Api.put(`/auth/me/lembretes/${index}`, { text });
+  },
+  deleteMyLembrete(index: number) {
+    return Api.del(`/auth/me/lembretes/${index}`);
   },
   logout() {
     return Api.post("/auth/logout");

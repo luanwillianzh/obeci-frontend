@@ -1,3 +1,13 @@
+/*
+ * `src/app/protected/turmas/turmas.css`
+ *
+ * Propósito geral:
+ * - Estilos da tela de turmas + painel de lembretes.
+ *
+ * Observação:
+ * - Este arquivo usa nesting (`&`), o que depende da configuração de CSS do build.
+ */
+
 .container-principal-turmas {
   /*  width: 90%;
   margin: 0 auto; */
@@ -125,6 +135,49 @@
   word-break: break-word;
   flex: 1;
   font-family: inherit;
+  /* Preserva quebras de linha digitadas no textarea */
+  white-space: pre-wrap;
+}
+
+.acoes-lembrete {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.botao-editar {
+  background: none;
+  border: none;
+  color: #333;
+  font-size: 1.4rem;
+  cursor: pointer;
+  padding: 0 0.4rem;
+  opacity: 0.85;
+}
+
+.botao-editar:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.lembrete-botoes {
+  display: flex;
+  gap: 1rem;
+}
+
+.botao-cancelar {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: none;
+  background-color: rgba(255, 255, 255, 0.25);
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.botao-cancelar:hover {
+  background-color: rgba(255, 255, 255, 0.35);
 }
 
 .botao-excluir {

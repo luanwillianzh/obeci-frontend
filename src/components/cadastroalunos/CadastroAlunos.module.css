@@ -1,3 +1,10 @@
+/*
+ * `src/components/cadastroalunos/CadastroAlunos.module.css`
+ *
+ * Propósito geral:
+ * - Estilos encapsulados do formulário de cadastro/edição de Turma.
+ */
+
 .pageContainer {
   background: #f2b694;
   font-family: "Nunito", sans-serif;

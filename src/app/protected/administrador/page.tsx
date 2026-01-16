@@ -1,12 +1,37 @@
 "use client";
 
+/**
+ * `src/app/protected/administrador/page.tsx`
+ *
+ * Propósito geral:
+ * - Tela administrativa para CRUD de entidades:
+ *   - Escolas
+ *   - Professores (usuários com role `PROFESSOR`)
+ *   - Administradores (usuários com role `ADMIN`)
+ *   - Turmas
+ *
+ * Estrutura:
+ * - Componentes internos de UI (`Card`, `ProfileCard`) para exibir itens.
+ * - Views internas por aba (`EscolasView`, `ProfessoresView`, `AdministradoresView`, `TurmasView`).
+ * - Modais reutilizáveis (`Modal`) para criar/editar (formulários de cadastro).
+ *
+ * Pontos críticos de lógica:
+ * - O estado `activeTab` controla qual view é renderizada.
+ * - IDs de edição (`edit*Id`) definem se o modal está em modo criação ou edição.
+ * - Chamadas à API são feitas via `Requests` e erros são comunicados via `alert()`.
+ *
+ * Observações/importante:
+ * - Não há loading global nesta tela; os `load*()` falham silenciosamente no catch.
+ * - O backend é a fonte de verdade; após create/update/delete, a tela recarrega listas.
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import { PenTool, User, Search, Trash2 } from "lucide-react";
 import "./administrar_dados.css";
 import Modal from "../../../components/ui/Modal";
-import CadastroProfessor, {
-  CadastroProfessorValues,
-} from "../../../components/cadastroprofessor/page";
+import CadastroUsuarios, {
+  CadastroUsuariosValues,
+} from "../../../components/cadastrousuarios/page";
 import CadastroTurma, {
   CadastroTurmaValues,
 } from "../../../components/cadastroalunos/page";
@@ -15,6 +40,13 @@ import CadastroEscola, {
   CadastroEscolaValues,
 } from "../../../components/cadastroescola/page";
 
+/**
+ * Card simples para entidades com nome + ações (editar/excluir).
+ *
+ * Entrada:
+ * - `nome` e `subtitle` (opcional)
+ * - callbacks `onEdit` e `onDelete`
+ */
 const Card = ({
   nome,
   subtitle,
@@ -48,19 +80,27 @@ const Card = ({
   </div>
 );
 
+/**
+ * Card mais “perfil” (ícone + texto) usado para pessoas e turmas.
+ */
 const ProfileCard = ({
   nome,
+  subtitle,
   onEdit,
   onDelete,
 }: {
   nome: string;
+  subtitle?: string;
   onEdit: () => void;
   onDelete: () => void;
 }) => (
   <div className="profile-card">
     <div className="profile-info-group">
       <User size={40} color="#6d6d6d" className="profile-icon" />
-      <span className="profile-name">{nome}</span>
+      <div className="profile-text">
+        <span className="profile-name">{nome}</span>
+        {subtitle ? <span className="profile-subtitle">{subtitle}</span> : null}
+      </div>
     </div>
     <div className="card-actions">
       <PenTool
@@ -103,7 +143,10 @@ const EscolasView = ({
   onEdit: (item: Escola) => void;
   onDelete: (item: Escola) => void;
 }) => {
+  /** Query local para filtro client-side. */
   const [searchQuery, setSearchQuery] = useState("");
+
+  /** Lista filtrada por nome (case-insensitive). */
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return items;
@@ -156,6 +199,7 @@ const ProfessoresView = ({
   onEdit: (item: Professor) => void;
   onDelete: (item: Professor) => void;
 }) => {
+  /** Query local para filtro por username/email. */
   const [searchQuery, setSearchQuery] = useState("");
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -204,14 +248,19 @@ const ProfessoresView = ({
 const TurmasView = ({
   onNew,
   items,
+  escolaNomeById,
+  professorNomeById,
   onEdit,
   onDelete,
 }: {
   onNew: () => void;
   items: Turma[];
+  escolaNomeById: Map<number, string>;
+  professorNomeById: Map<number, string>;
   onEdit: (item: Turma) => void;
   onDelete: (item: Turma) => void;
 }) => {
+  /** Query local para filtro por nome da turma. */
   const [searchQuery, setSearchQuery] = useState("");
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -243,7 +292,11 @@ const TurmasView = ({
         {filtered.map((turma) => (
           <ProfileCard
             key={turma.id}
-            nome={`${turma.nome} - ${turma.turno}`}
+            nome={`Turma #${turma.id} - ${turma.nome}`}
+            subtitle={`Turno: ${turma.turno} | Professor: ${
+              professorNomeById.get(turma.professorId) ||
+              `#${turma.professorId}`
+            } | Escola: ${escolaNomeById.get(turma.escolaId) || `#${turma.escolaId}`}`}
             onEdit={() => onEdit(turma)}
             onDelete={() => onDelete(turma)}
           />
@@ -264,6 +317,7 @@ const AdministradoresView = ({
   onEdit: (item: Administrador) => void;
   onDelete: (item: Administrador) => void;
 }) => {
+  /** Query local para filtro por username/email. */
   const [searchQuery, setSearchQuery] = useState("");
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -311,6 +365,14 @@ const AdministradoresView = ({
 
 type ActiveTab = "escolas" | "professores" | "administradores" | "turmas";
 
+/**
+ * Página administrativa.
+ *
+ * Responsabilidades:
+ * - Carregar listas do backend no mount.
+ * - Coordenar abertura/fechamento de modais.
+ * - Coordenar create/update/delete, e recarregar listas após mutações.
+ */
 export default function AdministrarDados() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("escolas");
   const [isEscolaOpen, setEscolaOpen] = useState(false);
@@ -332,11 +394,20 @@ export default function AdministrarDados() {
     () => new Map(escolas.map((e) => [e.id, e])),
     [escolas]
   );
+  const escolaNomeById = useMemo(
+    () => new Map(escolas.map((e) => [e.id, e.nome])),
+    [escolas]
+  );
+  const professorNomeById = useMemo(
+    () => new Map(professores.map((p) => [p.id, p.username])),
+    [professores]
+  );
   const turmaById = useMemo(
     () => new Map(turmas.map((t) => [t.id, t])),
     [turmas]
   );
 
+  /** Carrega escolas do backend e atualiza o state local. */
   async function loadEscolas() {
     try {
       const res = await Requests.listEscolas();
@@ -347,6 +418,7 @@ export default function AdministrarDados() {
     } catch {}
   }
 
+  /** Carrega professores do backend e atualiza o state local. */
   async function loadProfessores() {
     try {
       const res = await Requests.listProfessores();
@@ -357,6 +429,7 @@ export default function AdministrarDados() {
     } catch {}
   }
 
+  /** Carrega administradores (role ADMIN) e atualiza o state local. */
   async function loadAdministradores() {
     try {
       const res = await Requests.listAdmins();
@@ -367,6 +440,7 @@ export default function AdministrarDados() {
     } catch {}
   }
 
+  /** Carrega turmas e atualiza o state local. */
   async function loadTurmas() {
     try {
       const res = await Requests.listTurmas();
@@ -377,6 +451,11 @@ export default function AdministrarDados() {
     } catch {}
   }
 
+  /**
+   * Carregamento inicial das listas.
+   * Observação:
+   * - Não há retry/erro visual; falhas ficam silenciosas.
+   */
   useEffect(() => {
     loadEscolas();
     loadProfessores();
@@ -384,6 +463,10 @@ export default function AdministrarDados() {
     loadTurmas();
   }, []);
 
+  /**
+   * Cria/atualiza escola.
+   * - Modo edição definido por `editEscolaId`.
+   */
   async function handleSubmitEscola(values: CadastroEscolaValues) {
     try {
       if (editEscolaId) {
@@ -418,7 +501,13 @@ export default function AdministrarDados() {
     }
   }
 
-  async function handleSubmitProfessor(values: CadastroProfessorValues) {
+  // Professor e Admin compartilham o mesmo formulário (CadastroUsuarios).
+  // A diferença está no payload (arrayRoles) enviado ao back-end.
+  /**
+   * Cria/atualiza Professor (usuário com role `PROFESSOR`).
+   * - Em update, só envia `password` se o campo for preenchido.
+   */
+  async function handleSubmitProfessor(values: CadastroUsuariosValues) {
     try {
       if (editProfessorId) {
         const payload: any = {
@@ -428,7 +517,10 @@ export default function AdministrarDados() {
         };
         const cpf = values.documento?.trim();
         if (cpf) payload.cpf = cpf;
+        // Se a senha for enviada no update, o back-end vai recriptografar e salvar.
+        // Aqui guardamos um flag para exibir mensagem de sucesso específica.
         const senha = values.senha?.trim();
+        const redefiniuSenha = !!senha;
         if (senha) payload.password = senha;
         const res = await Requests.updateUsuario(editProfessorId, payload);
         if (!res.ok) {
@@ -448,6 +540,9 @@ export default function AdministrarDados() {
           }
           alert(errorMsg);
           return;
+        }
+        if (redefiniuSenha) {
+          alert("Senha atualizada com sucesso!");
         }
       } else {
         const res = await Requests.createUsuario({
@@ -484,7 +579,12 @@ export default function AdministrarDados() {
     }
   }
 
-  async function handleSubmitAdmin(values: CadastroProfessorValues) {
+  // Mesmo submit do professor, mudando arrayRoles para ADMIN.
+  /**
+   * Cria/atualiza Administrador (usuário com role `ADMIN`).
+   * - Reusa o mesmo shape do formulário `CadastroUsuarios`.
+   */
+  async function handleSubmitAdmin(values: CadastroUsuariosValues) {
     try {
       if (editAdminId) {
         const payload: any = {
@@ -494,7 +594,10 @@ export default function AdministrarDados() {
         };
         const cpf = values.documento?.trim();
         if (cpf) payload.cpf = cpf;
+        // Se a senha for enviada no update, o back-end vai recriptografar e salvar.
+        // Aqui guardamos um flag para exibir mensagem de sucesso específica.
         const senha = values.senha?.trim();
+        const redefiniuSenha = !!senha;
         if (senha) payload.password = senha;
         const res = await Requests.updateUsuario(editAdminId, payload);
         if (!res.ok) {
@@ -514,6 +617,9 @@ export default function AdministrarDados() {
           }
           alert(errorMsg);
           return;
+        }
+        if (redefiniuSenha) {
+          alert("Senha atualizada com sucesso!");
         }
       } else {
         const res = await Requests.createUsuario({
@@ -550,6 +656,10 @@ export default function AdministrarDados() {
     }
   }
 
+  /**
+   * Cria/atualiza Turma.
+   * - Usa `CadastroTurma` como formulário.
+   */
   async function handleSubmitTurma(values: CadastroTurmaValues) {
     try {
       if (editTurmaId) {
@@ -587,6 +697,7 @@ export default function AdministrarDados() {
     }
   }
 
+  /** Exclui escola após confirmação do usuário (confirm dialog). */
   async function handleDeleteEscola(item: Escola) {
     if (!confirm(`Excluir escola "${item.nome}"?`)) return;
     try {
@@ -602,6 +713,7 @@ export default function AdministrarDados() {
     }
   }
 
+  /** Exclui professor (usuário) após confirmação do usuário. */
   async function handleDeleteProfessor(item: Professor) {
     if (!confirm(`Excluir professor "${item.username}"?`)) return;
     try {
@@ -617,6 +729,7 @@ export default function AdministrarDados() {
     }
   }
 
+  /** Exclui administrador (usuário) após confirmação do usuário. */
   async function handleDeleteAdministrador(item: Administrador) {
     if (!confirm(`Excluir administrador "${item.username}"?`)) return;
     try {
@@ -632,6 +745,7 @@ export default function AdministrarDados() {
     }
   }
 
+  /** Exclui turma após confirmação do usuário. */
   async function handleDeleteTurma(item: Turma) {
     if (!confirm(`Excluir turma "${item.nome}"?`)) return;
     try {
@@ -647,6 +761,11 @@ export default function AdministrarDados() {
     }
   }
 
+  /**
+   * Seleciona qual view renderizar conforme a aba ativa.
+   * Observação:
+   * - `default` repete o caso escolas como fallback.
+   */
   const renderContent = () => {
     switch (activeTab) {
       case "escolas":
@@ -702,6 +821,8 @@ export default function AdministrarDados() {
               setTurmaOpen(true);
             }}
             items={turmas}
+            escolaNomeById={escolaNomeById}
+            professorNomeById={professorNomeById}
             onEdit={(t) => {
               setEditTurmaId(t.id);
               setTurmaOpen(true);
@@ -797,7 +918,9 @@ export default function AdministrarDados() {
             }}
             title="Novo Professor"
           >
-            <CadastroProfessor
+            {/* CadastroUsuarios (tipo=professor): título/labels corretos */}
+            <CadastroUsuarios
+              tipo="professor"
               onSubmit={handleSubmitProfessor}
               initialValues={
                 editProfessorId
@@ -821,7 +944,9 @@ export default function AdministrarDados() {
             }}
             title="Novo Administrador"
           >
-            <CadastroProfessor
+            {/* CadastroUsuarios (tipo=administrador): título/labels corretos */}
+            <CadastroUsuarios
+              tipo="administrador"
               onSubmit={handleSubmitAdmin}
               initialValues={
                 editAdminId

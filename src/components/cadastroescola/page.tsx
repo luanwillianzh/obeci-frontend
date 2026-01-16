@@ -1,4 +1,14 @@
 "use client";
+
+/**
+ * `src/components/cadastroescola/page.tsx` (CadastroEscola)
+ *
+ * Propósito geral:
+ * - Formulário controlado para criação/edição de Escola.
+ *
+ * Observação:
+ * - Não chama API diretamente; delega a persistência ao `onSubmit`.
+ */
 import { FormEvent, useState } from "react";
 import styles from "./CadastroEscola.module.css";
 
@@ -18,6 +28,7 @@ export default function CadastroEscola({
   onSubmit,
   className,
 }: CadastroEscolaProps) {
+  /** Estado controlado do formulário (permite pré-preencher via `initialValues`). */
   const [values, setValues] = useState<CadastroEscolaValues>({
     nome: initialValues?.nome ?? "",
     cidade: initialValues?.cidade ?? "",

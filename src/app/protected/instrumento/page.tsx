@@ -1,6 +1,33 @@
 "use client";
+
+/**
+ * `src/app/protected/instrumento/page.tsx`
+ *
+ * Propósito geral:
+ * - Editor visual de “Instrumento / Processo Documental” por turma.
+ * - Permite criar e editar uma sequência de slides contendo:
+ *   - caixas de texto posicionáveis
+ *   - imagens (upload/resize/rotate/crop)
+ *   - estilos básicos (fonte, tamanho, alinhamento, marcação/cor)
+ *
+ * Integração com backend:
+ * - Quando existe `t` na querystring (turmaId), tenta carregar e salvar via API:
+ *   - `Requests.getInstrumentoByTurma(turmaId)` para carregar
+ *   - `Requests.saveInstrumento(...)` / `Requests.createInstrumento(...)` para persistir
+ * - Na ausência de `turmaId`, usa fallback em `localStorage`.
+ *
+ * Pontos críticos de lógica:
+ * - Arquivo grande com muitos handlers; os comentários estão organizados por seções.
+ * - Existem estilos inline e cores hard-coded (ex.: `#f8894a`) em alguns modais/controles;
+ *   idealmente isso deveria ser tokenizado via CSS/tema, mas aqui não refatoramos.
+ *
+ * Se algo não estiver claro:
+ * - `StorageService` está descrito como “futuro”, porém não parece ser usado no fluxo principal.
+ * - Há TODOs indicando migração de persistência para API; parte disso já foi implementada via `Requests`.
+ */
+
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Requests } from "@/contexts/ApiRequests";
 import "./publication.css";
 
@@ -188,6 +215,7 @@ const ImageCropper = ({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [crop, setCrop] = useState({ x: 20, y: 20, width: 200, height: 150 });
 
+  /** Inicia o arraste da área de recorte (drag). */
   const handleCropMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -198,6 +226,7 @@ const ImageCropper = ({
     setIsDragging(true);
   };
 
+  /** Inicia o resize do retângulo de recorte (alça no canto). */
   const handleResizeMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -878,8 +907,10 @@ const DraggableResizableImage = ({
           width: "14px",
           height: "14px",
           cursor: "se-resize",
-          zIndex: 20,
+          // Fica acima dos handles de borda (right/bottom) para permitir resize diagonal.
+          zIndex: 60,
           background: isHovered ? "#f88a4ab2" : "transparent",
+          pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "bottom-right")}
@@ -893,8 +924,10 @@ const DraggableResizableImage = ({
           width: "14px",
           height: "14px",
           cursor: "nw-resize",
-          zIndex: 20,
+          // Fica acima dos handles de borda (left/top) para permitir resize diagonal.
+          zIndex: 60,
           background: isHovered ? "#f88a4ab2" : "transparent",
+          pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "top-left")}
@@ -908,8 +941,10 @@ const DraggableResizableImage = ({
           width: "14px",
           height: "14px",
           cursor: "ne-resize",
-          zIndex: 20,
+          // Fica acima dos handles de borda (right/top) para permitir resize diagonal.
+          zIndex: 60,
           background: isHovered ? "#f88a4ab2" : "transparent",
+          pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "top-right")}
@@ -923,8 +958,10 @@ const DraggableResizableImage = ({
           width: "14px",
           height: "14px",
           cursor: "sw-resize",
-          zIndex: 20,
+          // Fica acima dos handles de borda (left/bottom) para permitir resize diagonal.
+          zIndex: 60,
           background: isHovered ? "#f88a4ab2" : "transparent",
+          pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "bottom-left")}
@@ -1533,6 +1570,20 @@ const DraggableTextBox = ({
   );
 };
 
+/**
+ * `SlideItem`
+ *
+ * Renderiza e controla a interação de um único slide no editor.
+ *
+ * Responsabilidades:
+ * - Exibir caixas de texto e imagens posicionáveis.
+ * - Encaminhar eventos (move/resize/rotate/zIndex/select/delete) ao componente pai
+ *   através das callbacks recebidas por props.
+ * - Implementar snapping/guia visual (linhas de alinhamento) durante movimentação.
+ *
+ * Observação:
+ * - O estado fonte de verdade (slides, seleção) fica no componente pai.
+ */
 const SlideItem = ({
   slide,
   isActive,
@@ -1968,6 +2019,16 @@ const ThumbnailItem = ({
 };
 
 const getInitialSlides = (): Slide[] => {
+  /**
+   * Determina os slides iniciais do editor.
+   *
+   * Regras:
+   * - Se houver conteúdo no `localStorage`, usa como fonte inicial.
+   * - Caso contrário, cria um slide default vazio com estilos base.
+   *
+   * Observação:
+   * - Quando `turmaId` existe, o carregamento “real” pode sobrescrever esse valor via API.
+   */
   const stored = loadPublicationFromStorage();
   if (stored && stored.length > 0) {
     return stored;
@@ -1989,7 +2050,19 @@ const getInitialSlides = (): Slide[] => {
   ];
 };
 
+/**
+ * Página do editor.
+ *
+ * Entrada:
+ * - Query param `t` (opcional): ID da turma.
+ *
+ * Efeitos colaterais:
+ * - Leitura/escrita em `localStorage` (quando não há `turmaId`).
+ * - Chamadas HTTP para carregar/salvar no backend (quando há `turmaId`).
+ * - Uso de timers para debouncing de persistência (variável `saveTimeoutRef`).
+ */
 export default function PublicacoesPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const turmaParam = searchParams.get("t");
   const turmaId = turmaParam ? parseInt(turmaParam, 10) : undefined;
@@ -2022,6 +2095,8 @@ export default function PublicacoesPage() {
   const slideRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
   const [loading, setLoading] = useState<boolean>(!!turmaId);
   const [loadedFromApi, setLoadedFromApi] = useState<boolean>(false);
+  const [canSaveToApi, setCanSaveToApi] = useState<boolean>(!turmaId);
+  const [isRedirecting, setIsRedirecting] = useState<boolean>(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -2031,6 +2106,8 @@ export default function PublicacoesPage() {
   // Sempre usar POST na primeira gravação quando mudar a turma
   useEffect(() => {
     setShouldUsePost(!!turmaId);
+    setCanSaveToApi(!turmaId);
+    setIsRedirecting(false);
   }, [turmaId]);
 
   // Carregar via API quando houver turmaId
@@ -2042,8 +2119,17 @@ export default function PublicacoesPage() {
       try {
         const res = await Requests.getInstrumentoByTurma(turmaId);
         if (!res.ok) {
-          // 404 -> usar default
+          // Se o instrumento não existir, deixa "cair" no not-found.
+          if (res.status === 404 && !cancelled) {
+            setIsRedirecting(true);
+            setLoadedFromApi(false);
+            setCanSaveToApi(false);
+            router.replace("/_not-found");
+            return;
+          }
+
           setLoadedFromApi(false);
+          setCanSaveToApi(false);
           return;
         }
         const data = await res.json();
@@ -2058,15 +2144,18 @@ export default function PublicacoesPage() {
                 setCurrentSlideId(parsed[0].id);
               }
               setLoadedFromApi(true);
+              setCanSaveToApi(true);
             }
           } catch (e) {
             console.error("Falha ao parsear slidesJson:", e);
             setLoadedFromApi(false);
+            setCanSaveToApi(false);
           }
         }
       } catch (e) {
         console.error("Erro ao carregar instrumento:", e);
         setLoadedFromApi(false);
+        setCanSaveToApi(false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -2080,6 +2169,10 @@ export default function PublicacoesPage() {
   // Auto-save: se houver turmaId, salva via PUT com debounce; senão, fallback localStorage
   useEffect(() => {
     if (turmaId) {
+      // Se não conseguiu carregar do backend, não deve tentar criar/salvar via API.
+      if (!canSaveToApi) {
+        return;
+      }
       // Evita salvar enquanto ainda está carregando do backend
       if (loading) {
         return;
@@ -2116,6 +2209,7 @@ export default function PublicacoesPage() {
 
   const handleManualSave = async () => {
     if (!turmaId) return;
+    if (!canSaveToApi) return;
     try {
       setSaveStatus("saving");
       if (shouldUsePost) {
@@ -2131,6 +2225,15 @@ export default function PublicacoesPage() {
       setSaveStatus("error");
     }
   };
+
+  /**
+   * Regra de UX/segurança:
+   * - Se a página foi aberta com `turmaId`, só renderizamos o editor quando a API confirmou
+   *   que existe um instrumento para essa turma (`loadedFromApi`).
+   * - Enquanto está carregando (ou redirecionando para not-found), o retorno é `null`.
+   */
+  const shouldRenderEditor =
+    !isRedirecting && (!turmaId || (!loading && loadedFromApi));
 
   const currentSlide = slides.find((s) => s.id === currentSlideId) || slides[0];
   const slideTags = currentSlide?.tags ?? [];
@@ -2832,8 +2935,8 @@ export default function PublicacoesPage() {
       e.target.value = "";
     }
   };
-
-  return (
+  
+  return shouldRenderEditor ? (
     <div className="editor-container">
       {loading && <div style={{ padding: 16 }}>Carregando instrumento...</div>}
       {/* Lateral Esquerda: Miniaturas */}
@@ -2934,37 +3037,41 @@ export default function PublicacoesPage() {
       {/* Área Central: Editor */}
       <main className="editor-main">
         <div className="toolbar">
-          {/* Botão de salvar e indicador de status */}
-          <button
-            onClick={handleManualSave}
-            disabled={!turmaId || saveStatus === "saving"}
-            title={turmaId ? "Salvar publicação" : "Selecione uma turma"}
-            style={{ marginRight: 8 }}
-          >
-            {saveStatus === "saving" ? "Salvando..." : "Salvar"}
-          </button>
-          <span
-            aria-live="polite"
-            style={{
-              minWidth: 80,
-              fontSize: 15,
-              display: "inline-block",
-              color:
-                saveStatus === "error"
-                  ? "#c62828"
-                  : saveStatus === "saved"
-                  ? "#2e7d32"
-                  : "#130b0b",
-            }}
-          >
-            {saveStatus === "saved"
-              ? "Salvo"
-              : saveStatus === "error"
-              ? "Erro ao salvar"
-              : saveStatus === "saving"
-              ? "Salvando..."
-              : ""}
-          </span>
+          {/* Botão de salvar + indicador com largura reservada (evita a toolbar “mexer” quando o texto muda). */}
+          <div className="save-block">
+            <button
+              onClick={handleManualSave}
+              disabled={!turmaId || saveStatus === "saving"}
+              title={turmaId ? "Salvar publicação" : "Selecione uma turma"}
+              className={
+                "save-button" +
+                (saveStatus === "saving" ? " save-button--saving" : "")
+              }
+            >
+              <span className="save-button__label">
+                {saveStatus === "saving" ? "Salvando..." : "Salvar"}
+              </span>
+            </button>
+            <span
+              aria-live="polite"
+              className={
+                "save-status" +
+                (saveStatus === "saved"
+                  ? " save-status--saved"
+                  : saveStatus === "error"
+                  ? " save-status--error"
+                  : "")
+              }
+            >
+              {saveStatus === "saved"
+                ? "Salvo"
+                : saveStatus === "error"
+                ? "Erro ao salvar"
+                : saveStatus === "saving"
+                ? "Salvando..."
+                : ""}
+            </span>
+          </div>
           <select
             disabled={selectedImage !== null}
             value={selectedBoxFontFamily}
@@ -2988,23 +3095,31 @@ export default function PublicacoesPage() {
             placeholder="Tamanho (6-60)"
             value={selectedBoxFontSize}
             onChange={(e) => {
-              setSelectedBoxFontSize(e.target.value);
+              // Atualiza imediatamente (incluindo quando usa as setinhas do input number).
+              // Importante: não fazemos clamp aqui para não atrapalhar digitação (ex: digitar 12).
+              const raw = e.target.value;
+              setSelectedBoxFontSize(raw);
+
+              const value = parseInt(raw);
+              const isValid = !Number.isNaN(value) && value >= 6 && value <= 60;
+              if (isValid && selectedTextBox) {
+                applyTextBoxStyle("fontSize", value.toString());
+              }
             }}
-            onKeyPress={(e) => {
-              if (e.key === "Enter") {
-                const value = parseInt(e.currentTarget.value);
-                if (!isNaN(value)) {
-                  const validValue = Math.max(6, Math.min(60, value));
-                  setSelectedBoxFontSize(validValue.toString());
-                  if (selectedTextBox) {
-                    applyTextBoxStyle("fontSize", validValue.toString());
-                  }
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const value = parseInt(e.currentTarget.value);
+              if (!Number.isNaN(value)) {
+                const validValue = Math.max(6, Math.min(60, value));
+                setSelectedBoxFontSize(validValue.toString());
+                if (selectedTextBox) {
+                  applyTextBoxStyle("fontSize", validValue.toString());
                 }
               }
             }}
             onBlur={(e) => {
               const value = parseInt(e.target.value);
-              if (!isNaN(value)) {
+              if (!Number.isNaN(value)) {
                 const validValue = Math.max(6, Math.min(60, value));
                 setSelectedBoxFontSize(validValue.toString());
                 if (selectedTextBox) {
@@ -3254,49 +3369,7 @@ export default function PublicacoesPage() {
           />
         </div>
 
-        <div className="options-group">
-          <h3>JSON</h3>
-          <button
-            onClick={exportToJSON}
-            style={{
-              width: "100%",
-              padding: "15px",
-              marginBottom: "10px",
-              backgroundColor: "#f8894a",
-              color: "black",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-            }}
-          >
-            📥 Exportar JSON
-          </button>
-          <label
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "13px",
-              backgroundColor: "#f7b995",
-              color: "black",
-              fontSize: "1.3rem",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontWeight: "bold",
-              textAlign: "center",
-              boxSizing: "border-box",
-            }}
-          >
-            📤 Importar JSON
-            <input
-              type="file"
-              accept=".json"
-              onChange={importFromJSON}
-              hidden
-            />
-          </label>
-        </div>
+  
       </aside>
 
       {croppingImage && (
@@ -3433,5 +3506,5 @@ export default function PublicacoesPage() {
         </div>
       )}
     </div>
-  );
+  ) : null;
 }

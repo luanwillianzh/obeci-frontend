@@ -1,4 +1,17 @@
 "use client";
+
+/**
+ * `src/app/login/page.tsx`
+ *
+ * Propósito geral:
+ * - Tela de autenticação do usuário.
+ * - Faz submit de credenciais via `useAuth().login` e redireciona para área protegida.
+ *
+ * Pontos críticos de lógica:
+ * - Ao montar, chama `logout()` para tentar limpar cookie HttpOnly no backend (evita sessões “presas”).
+ * - Exibe banner quando `sessionExpired` foi sinalizado em `localStorage` (setado por `Requests.me()`).
+ * - Enquanto `loading` ou já existe `user`, retorna `null` para evitar flicker de UI.
+ */
 import Header from "@/components/header/header";
 import "./loginpage.css";
 import { useAuth } from "@/contexts/useAuth";
@@ -6,24 +19,46 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
 export default function Login() {
+  /**
+   * Dependências do contexto de autenticação.
+   * - `login`: ação de autenticação
+   * - `logout`: limpeza de sessão
+   * - `user/loading`: estado global
+   */
   const { login, user, loading, logout } = useAuth();
   const router = useRouter();
 
+  /** Campos controlados do formulário. */
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  /** Estados de UI: erro de login, submit em andamento e aviso de expiração de sessão. */
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
 
+  /**
+   * Validação mínima do e-mail.
+   * - `useMemo` evita recalcular regex a cada render sem necessidade.
+   */
   const isEmailValid = useMemo(() => {
     const e = email.trim();
     if (!e) return false;
     // simples validação de e-mail
     return /[^\s@]+@[^\s@]+\.[^\s@]+/.test(e);
   }, [email]);
+
+  /** Regra de habilitação do submit. */
   const canSubmit = isEmailValid && password.trim().length > 0 && !isSubmitting;
 
   // Ao entrar na página de login, garantir limpeza do cookie HttpOnly no backend
+  /**
+   * Efeito de montagem:
+   * - Tenta encerrar qualquer sessão anterior.
+   *
+   * Observação:
+   * - A dependência é intencionalmente ignorada para rodar 1x (padrão “componentDidMount”).
+   */
   useEffect(() => {
     (async () => {
       try {
@@ -34,6 +69,9 @@ export default function Login() {
   }, []);
 
   // 🚀 Se já tiver usuário logado, redireciona automaticamente
+  /**
+   * Se a sessão já está válida, evita mostrar login e navega direto.
+   */
   useEffect(() => {
     if (!loading && user) {
       router.push("/protected/turmas");
@@ -41,6 +79,10 @@ export default function Login() {
   }, [loading, user, router]);
 
   // Exibir aviso amigável quando a sessão expirar e o usuário for redirecionado
+  /**
+   * Lê flag de expiração de sessão.
+   * - Essa flag é escrita em `Requests.me()` quando a API devolve 4xx.
+   */
   useEffect(() => {
     try {
       const flag = localStorage.getItem("sessionExpired");
@@ -51,6 +93,14 @@ export default function Login() {
     } catch {}
   }, []);
 
+  /**
+   * Handler do submit.
+   *
+   * Regras:
+   * - Aborta se `canSubmit` for falso.
+   * - Em sucesso, navega para `/protected/turmas`.
+   * - Em erro, exibe mensagem vinda do provider (ou fallback).
+   */
   const handleLogin = async () => {
     if (!canSubmit) return;
     setError("");
@@ -134,7 +184,7 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
-                <div className="forgotpassword-button">Esqueci a senha</div>
+             {/*    <div className="forgotpassword-button">Esqueci a senha</div> */}
               </div>
 
               <button

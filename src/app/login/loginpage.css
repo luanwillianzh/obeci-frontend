@@ -1,3 +1,11 @@
+/*
+ * `src/app/login/loginpage.css`
+ *
+ * Propósito geral:
+ * - Estilização da tela de login.
+ * - Inclui layout responsivo e estilos do banner de sessão expirada.
+ */
+
 .container-login-page {
   display: flex;
   flex-flow: row nowrap;
@@ -57,6 +65,7 @@
           font-size: clamp(1.6rem, 3.2vw, 2rem);
           color: #6d6d6d;
           box-sizing: border-box;
+          margin-bottom: 2rem;
         }
         & .input-form-login:focus {
           outline: 2px solid var(--cor3-obeci);

@@ -1,3 +1,10 @@
+/*
+ * `src/components/cadastroprofessor/CadastroProfessor.module.css`
+ *
+ * Propósito geral:
+ * - Estilos encapsulados dos formulários de cadastro (Professor e formulários reaproveitados).
+ */
+
 .pageContainer {
   background: #f2b694;
   font-family: "Nunito", sans-serif;

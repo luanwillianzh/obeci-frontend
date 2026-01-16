@@ -1,3 +1,10 @@
+/*
+ * `src/app/protected/administrador/administrar_dados.css`
+ *
+ * Propósito geral:
+ * - Estilos da área administrativa (tabs laterais + grids/listas + cards).
+ */
+
 .admin-page-container {
   background-color: #fff8f8;
   width: 100%;
@@ -183,6 +190,16 @@
   font-size: 3rem;
   font-weight: 500;
   color: #333;
+}
+
+.profile-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-subtitle {
+  font-size: 2rem;
+  color: #666;
 }
 
 .profile-card-separator {

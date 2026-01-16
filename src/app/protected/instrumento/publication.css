@@ -1,3 +1,11 @@
+/*
+ * `src/app/protected/instrumento/publication.css`
+ *
+ * Propósito geral:
+ * - Estilos do editor de slides/instrumento (layout do canvas, sidebar de miniaturas,
+ *   toolbars e elementos interativos do editor).
+ */
+
 .editor-container {
   display: flex;
   width: 100%;
@@ -117,6 +125,52 @@
   align-items: center;
   padding: 0 1rem;
   gap: 1rem;
+}
+
+/* --- Toolbar: Salvar + status (largura reservada, sem “mexer” a barra) --- */
+.save-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Reserva o espaço do botão + status para não deslocar os outros controles */
+  width: 19rem; /* 110 (botão) + 130 (status) + 8 (gap) */
+  flex: 0 0 19rem;
+}
+
+.save-button {
+  width: 110px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.save-button__label {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Quando o texto é maior ("Salvando..."), reduz a fonte para caber no mesmo botão */
+.save-button--saving .save-button__label {
+  font-size: 12px;
+}
+
+.save-status {
+  width: 7rem;
+  flex: 0 0 7rem;
+  font-size: 15px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  color: #130b0b;
+}
+
+.save-status--saved {
+  color: #2e7d32;
+}
+
+.save-status--error {
+  color: #c62828;
 }
 
 .toolbar select,
