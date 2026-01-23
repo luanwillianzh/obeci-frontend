@@ -1355,7 +1355,7 @@ const DraggableTextBox = ({
           height: "100%",
           cursor: "e-resize",
           zIndex: 4,
-          background: selected ? "#f88a4ab2" : "transparent",
+          background: "transparent",
         }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -1384,7 +1384,7 @@ const DraggableTextBox = ({
           height: "100%",
           cursor: "w-resize",
           zIndex: 4,
-          background: selected ? "#f88a4ab2" : "transparent",
+          background: "transparent",
         }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -1413,7 +1413,7 @@ const DraggableTextBox = ({
           height: "5px",
           cursor: "s-resize",
           zIndex: 4,
-          background: selected ? "#f88a4ab2" : "transparent",
+          background: "transparent",
         }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -1442,7 +1442,7 @@ const DraggableTextBox = ({
           height: "5px",
           cursor: "se-resize",
           zIndex: 4,
-          background: selected ? "#f88a4ab2" : "transparent",
+          background: "transparent",
         }}
         onMouseDown={(e) => {
           e.stopPropagation();
@@ -2251,6 +2251,60 @@ export default function PublicacoesPage() {
     return matchesTag && matchesInstrument;
   });
 
+  // Navegação de slides com teclado (↑/↓).
+  // Importante: NÃO deve disparar enquanto o usuário estiver digitando/selecionando texto.
+  useEffect(() => {
+    const isTypingTarget = (el: Element | null) => {
+      if (!el) return false;
+      const htmlEl = el as HTMLElement;
+      const tag = (htmlEl.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (htmlEl.isContentEditable) return true;
+      if (htmlEl.closest('[contenteditable="true"]')) return true;
+      return false;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (showColorModal || croppingImage) return;
+
+      const activeEl = document.activeElement;
+      if (isTypingTarget(activeEl)) return;
+
+      // Se houver filtro, tentamos navegar dentro do conjunto filtrado.
+      // Se o slide atual não estiver no filtrado, cai para o conjunto completo.
+      const hasFilter = Boolean(filterTag) || Boolean(filterInstrument);
+      const preferredList = hasFilter ? filteredSlides : slides;
+      const list =
+        preferredList.some((s) => s.id === currentSlideId) || !hasFilter
+          ? preferredList
+          : slides;
+
+      if (!list || list.length === 0) return;
+
+      const currentIndex = list.findIndex((s) => s.id === currentSlideId);
+      const baseIndex = currentIndex >= 0 ? currentIndex : 0;
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = baseIndex + delta;
+      if (nextIndex < 0 || nextIndex >= list.length) return;
+
+      e.preventDefault();
+      handleSlideChange(list[nextIndex].id);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [
+    currentSlideId,
+    slides,
+    filteredSlides,
+    filterTag,
+    filterInstrument,
+    showColorModal,
+    croppingImage,
+  ]);
+
   const handleSlideChange = (id: number) => {
     setCurrentSlideId(id);
     const element = document.getElementById(`slide-${id}`);
@@ -2471,6 +2525,82 @@ export default function PublicacoesPage() {
           };
         }
         return s;
+      })
+    );
+  };
+
+  type LayerItem =
+    | { kind: "image"; id: number; zIndex: number; label: string }
+    | { kind: "text"; id: number; zIndex: number; label: string };
+
+  const getLayerItems = (slide: Slide | undefined): LayerItem[] => {
+    if (!slide) return [];
+    const images: LayerItem[] = (slide.images ?? []).map((img) => ({
+      kind: "image",
+      id: img.id,
+      zIndex: img.zIndex ?? 1,
+      label: `Imagem #${img.id}`,
+    }));
+    const texts: LayerItem[] = (slide.textBoxes ?? []).map((box) => ({
+      kind: "text",
+      id: box.id,
+      zIndex: box.zIndex ?? 1,
+      label: `Texto #${box.id}`,
+    }));
+
+    // Ordem base: do fundo (menor z) para o topo (maior z).
+    return [...images, ...texts]
+      .sort((a, b) => {
+        if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
+        // Desempate estável para evitar “pulos” na lista
+        if (a.kind !== b.kind) return a.kind === "image" ? -1 : 1;
+        return a.id - b.id;
+      })
+      .map((it, idx) => ({ ...it, zIndex: idx + 1 }));
+  };
+
+  const reorderLayer = (
+    slideId: number,
+    target: { kind: "image" | "text"; id: number },
+    action: "forward" | "backward" | "front" | "back"
+  ) => {
+    setSlides((prev) =>
+      prev.map((s) => {
+        if (s.id !== slideId) return s;
+        const normalized = getLayerItems(s);
+        const idx = normalized.findIndex(
+          (it) => it.kind === target.kind && it.id === target.id
+        );
+        if (idx < 0) return s;
+
+        const next = [...normalized];
+        if (action === "forward" && idx < next.length - 1) {
+          [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+        } else if (action === "backward" && idx > 0) {
+          [next[idx], next[idx - 1]] = [next[idx - 1], next[idx]];
+        } else if (action === "front") {
+          const [item] = next.splice(idx, 1);
+          next.push(item);
+        } else if (action === "back") {
+          const [item] = next.splice(idx, 1);
+          next.unshift(item);
+        }
+
+        // Reatribui zIndex sequencial (1..N) garantindo consistência entre imagens e textos.
+        const zMap = new Map<string, number>();
+        next.forEach((it, i) => zMap.set(`${it.kind}:${it.id}`, i + 1));
+
+        return {
+          ...s,
+          images: s.images.map((img) => ({
+            ...img,
+            zIndex: zMap.get(`image:${img.id}`) ?? (img.zIndex ?? 1),
+          })),
+          textBoxes: s.textBoxes.map((box) => ({
+            ...box,
+            zIndex: zMap.get(`text:${box.id}`) ?? (box.zIndex ?? 1),
+          })),
+        };
       })
     );
   };
@@ -2970,7 +3100,7 @@ export default function PublicacoesPage() {
               border: "1px solid #ccc",
             }}
           >
-            <option value="">Filtrar por instrumento</option>
+            <option value="">Todos Instrumentos</option>
             <option value="Capa">Capa</option>
             <option value="Ficha técnica">Ficha técnica</option>
             <option value="Informações sobre a escola">
@@ -3091,8 +3221,8 @@ export default function PublicacoesPage() {
             disabled={selectedImage !== null}
             type="number"
             min="6"
-            max="60"
-            placeholder="Tamanho (6-60)"
+            max="120"
+            placeholder="Tamanho (6-120)"
             value={selectedBoxFontSize}
             onChange={(e) => {
               // Atualiza imediatamente (incluindo quando usa as setinhas do input number).
@@ -3101,7 +3231,7 @@ export default function PublicacoesPage() {
               setSelectedBoxFontSize(raw);
 
               const value = parseInt(raw);
-              const isValid = !Number.isNaN(value) && value >= 6 && value <= 60;
+              const isValid = !Number.isNaN(value) && value >= 6 && value <= 120;
               if (isValid && selectedTextBox) {
                 applyTextBoxStyle("fontSize", value.toString());
               }
@@ -3110,7 +3240,7 @@ export default function PublicacoesPage() {
               if (e.key !== "Enter") return;
               const value = parseInt(e.currentTarget.value);
               if (!Number.isNaN(value)) {
-                const validValue = Math.max(6, Math.min(60, value));
+                const validValue = Math.max(6, Math.min(120, value));
                 setSelectedBoxFontSize(validValue.toString());
                 if (selectedTextBox) {
                   applyTextBoxStyle("fontSize", validValue.toString());
@@ -3367,6 +3497,142 @@ export default function PublicacoesPage() {
             placeholder="Adicione comentários ou tags..."
             className="tags-input"
           />
+
+          <div className="layers-panel">
+            <div className="layers-panel__header">Camadas</div>
+
+            <div className="layers-list">
+              {(() => {
+                const itemsBottomToTop = getLayerItems(currentSlide);
+                const itemsTopToBottom = [...itemsBottomToTop].reverse();
+                if (itemsTopToBottom.length === 0) {
+                  return <div className="layers-empty">Nenhum elemento no slide.</div>;
+                }
+
+                return itemsTopToBottom.map((it) => {
+                  const baseIndex = itemsBottomToTop.findIndex(
+                    (x) => x.kind === it.kind && x.id === it.id
+                  );
+                  const canForward =
+                    baseIndex >= 0 && baseIndex < itemsBottomToTop.length - 1;
+                  const canBackward = baseIndex > 0;
+                  const isSelected =
+                    (it.kind === "image" &&
+                      selectedImage?.slideId === currentSlideId &&
+                      selectedImage?.imgId === it.id) ||
+                    (it.kind === "text" &&
+                      selectedTextBox?.slideId === currentSlideId &&
+                      selectedTextBox?.boxId === it.id);
+
+                  return (
+                    <div
+                      key={`${it.kind}-${it.id}`}
+                      className={
+                        "layers-item" + (isSelected ? " layers-item--selected" : "")
+                      }
+                      onClick={() => {
+                        if (it.kind === "image") {
+                          handleImageSelection(currentSlideId, it.id);
+                        } else {
+                          handleTextBoxSelection(currentSlideId, it.id);
+                        }
+                      }}
+                      title={it.label}
+                    >
+                      <span className="layers-item__meta">{it.zIndex}</span>
+                      <span className="layers-item__label">
+                        {it.kind === "image" ? "🖼️" : "🔤"} {it.label}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="layers-btn layers-btn--icon"
+                        disabled={!canForward}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          reorderLayer(
+                            currentSlideId,
+                            { kind: it.kind, id: it.id },
+                            "forward"
+                          );
+                        }}
+                        title="Trazer para frente"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        className="layers-btn layers-btn--icon"
+                        disabled={!canBackward}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          reorderLayer(
+                            currentSlideId,
+                            { kind: it.kind, id: it.id },
+                            "backward"
+                          );
+                        }}
+                        title="Enviar para trás"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            <div className="layers-actions">
+              <button
+                type="button"
+                className="layers-btn"
+                disabled={!selectedImage && !selectedTextBox}
+                onClick={() => {
+                  if (selectedImage?.slideId === currentSlideId) {
+                    reorderLayer(
+                      currentSlideId,
+                      { kind: "image", id: selectedImage.imgId },
+                      "front"
+                    );
+                  } else if (selectedTextBox?.slideId === currentSlideId) {
+                    reorderLayer(
+                      currentSlideId,
+                      { kind: "text", id: selectedTextBox.boxId },
+                      "front"
+                    );
+                  }
+                }}
+                title="Trazer ao topo"
+              >
+                Topo
+              </button>
+              <button
+                type="button"
+                className="layers-btn"
+                disabled={!selectedImage && !selectedTextBox}
+                onClick={() => {
+                  if (selectedImage?.slideId === currentSlideId) {
+                    reorderLayer(
+                      currentSlideId,
+                      { kind: "image", id: selectedImage.imgId },
+                      "back"
+                    );
+                  } else if (selectedTextBox?.slideId === currentSlideId) {
+                    reorderLayer(
+                      currentSlideId,
+                      { kind: "text", id: selectedTextBox.boxId },
+                      "back"
+                    );
+                  }
+                }}
+                title="Enviar ao fundo"
+              >
+                Fundo
+              </button>
+            </div>
+          </div>
         </div>
 
   
