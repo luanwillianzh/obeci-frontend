@@ -316,4 +316,9 @@ export const Requests = {
     // Helper para usar em <img src=...> com URL absoluta
     return `${getBaseUrl()}/api/instrumentos/images/${id}`;
   },
+
+  // Log de alterações (colaboração)
+  getInstrumentoChanges(turmaId: number, limit = 50) {
+    return Api.get(`/api/instrumentos/turma/${turmaId}/changes?limit=${limit}`);
+  },
 };

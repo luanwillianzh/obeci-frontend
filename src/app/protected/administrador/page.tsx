@@ -896,7 +896,15 @@ export default function AdministrarDados() {
               setEscolaOpen(false);
               setEditEscolaId(null);
             }}
-            title="Nova Escola"
+            title={
+              editEscolaId
+                ? `Atualizar dados da escola ${
+                    escolaById.get(editEscolaId)?.nome
+                      ? `"${escolaById.get(editEscolaId)?.nome}"`
+                      : `#${editEscolaId}`
+                  }`
+                : "Cadastrar nova escola"
+            }
           >
             <CadastroEscola
               onSubmit={handleSubmitEscola}
@@ -916,7 +924,18 @@ export default function AdministrarDados() {
               setProfessorOpen(false);
               setEditProfessorId(null);
             }}
-            title="Novo Professor"
+            title={
+              editProfessorId
+                ? `Atualizar dados do professor ${
+                    professores.find((p) => p.id === editProfessorId)?.username
+                      ? `"${
+                          professores.find((p) => p.id === editProfessorId)
+                            ?.username
+                        }"`
+                      : `#${editProfessorId}`
+                  }`
+                : "Cadastrar novo professor"
+            }
           >
             {/* CadastroUsuarios (tipo=professor): título/labels corretos */}
             <CadastroUsuarios
@@ -942,7 +961,18 @@ export default function AdministrarDados() {
               setAdminOpen(false);
               setEditAdminId(null);
             }}
-            title="Novo Administrador"
+            title={
+              editAdminId
+                ? `Atualizar dados do administrador ${
+                    administradores.find((a) => a.id === editAdminId)?.username
+                      ? `"${
+                          administradores.find((a) => a.id === editAdminId)
+                            ?.username
+                        }"`
+                      : `#${editAdminId}`
+                  }`
+                : "Cadastrar novo administrador"
+            }
           >
             {/* CadastroUsuarios (tipo=administrador): título/labels corretos */}
             <CadastroUsuarios
@@ -968,7 +998,15 @@ export default function AdministrarDados() {
               setTurmaOpen(false);
               setEditTurmaId(null);
             }}
-            title="Nova Turma"
+            title={
+              editTurmaId
+                ? `Atualizar dados da turma ${
+                    turmaById.get(editTurmaId)?.nome
+                      ? `"${turmaById.get(editTurmaId)?.nome}"`
+                      : `#${editTurmaId}`
+                  }`
+                : "Cadastrar nova turma"
+            }
           >
             <CadastroTurma
               onSubmit={handleSubmitTurma}

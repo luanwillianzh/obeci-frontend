@@ -63,8 +63,15 @@ export default function CadastroUsuarios({
   });
 
   const isProfessor = tipo === "professor";
+  const isEdit = initialValues != null;
   // Textos dinâmicos para evitar exibir "Professor" quando for admin.
-  const title = isProfessor ? "Cadastro Professor" : "Cadastro Administrador";
+  const title = isProfessor
+    ? isEdit
+      ? "Atualizar dados do professor"
+      : "Cadastrar professor"
+    : isEdit
+      ? "Atualizar dados do administrador"
+      : "Cadastrar administrador";
   const nomeLabel = isProfessor
     ? "Nome do(a) Professor(a)"
     : "Nome do(a) Administrador(a)";
@@ -143,7 +150,7 @@ export default function CadastroUsuarios({
         </div>
 
         <button type="submit" className={styles.btnCadastrar}>
-          Cadastrar
+          {isEdit ? "Atualizar" : "Cadastrar"}
         </button>
       </form>
     </div>

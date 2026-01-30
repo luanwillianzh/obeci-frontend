@@ -34,6 +34,7 @@ export default function CadastroTurma({
   onSubmit,
   className,
 }: CadastroTurmaProps) {
+  const isEdit = initialValues != null;
   /**
    * Estado controlado do formulário.
    * - `initialValues` permite reutilização para edição.
@@ -121,7 +122,9 @@ export default function CadastroTurma({
   return (
     <div className={styles.pageContainer + (className ? ` ${className}` : "")}>
       <form className={styles.cadastroForm} onSubmit={handleSubmit}>
-        <h1 className={styles.title}>Cadastro Turma</h1>
+        <h1 className={styles.title}>
+          {isEdit ? "Atualizar dados da turma" : "Cadastrar turma"}
+        </h1>
 
         <div className={styles.formColumns}>
           <div className={styles.column}>
@@ -216,7 +219,7 @@ export default function CadastroTurma({
         </div>
 
         <button type="submit" className={styles.btnCadastrar}>
-          Cadastrar
+          {isEdit ? "Atualizar" : "Cadastrar"}
         </button>
       </form>
     </div>

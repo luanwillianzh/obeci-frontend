@@ -29,7 +29,104 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Requests } from "@/contexts/ApiRequests";
+import { Client, type IMessage } from "@stomp/stompjs";
 import "./publication.css";
+
+type InstrumentoChangeLogDto = {
+  id: number;
+  instrumentoId: number;
+  turmaId: number;
+  actor: string;
+  eventType: string;
+  summary: string;
+  payloadJson?: string;
+  createdAt: unknown;
+};
+
+type InstrumentoWsUpdateBroadcast = {
+  instrumentoId: number;
+  turmaId: number;
+  slides: unknown;
+  version: number;
+  actor: string;
+  updatedAt: string;
+  clientId?: string;
+  logEntry?: InstrumentoChangeLogDto;
+};
+
+type InstrumentoWsError = {
+  code: string;
+  message: string;
+  turmaId?: number;
+  clientId?: string;
+  at?: string;
+};
+
+function isUserVisibleChangeLog(e: InstrumentoChangeLogDto): boolean {
+  const eventType = (e.eventType || "").toUpperCase();
+  if (eventType.startsWith("INTERNAL_")) return false;
+
+  const summary = (e.summary || "").toLowerCase();
+  // Não mostrar mensagens internas/erros no painel de log.
+  if (summary.includes("retry")) return false;
+  if (summary.includes("conflito de versão")) return false;
+  if (summary.includes("version_conflict")) return false;
+  if (summary.startsWith("erro")) return false;
+  if (summary.includes("falha") && summary.includes("salvar")) return false;
+  return true;
+}
+
+function buildWsUrlFromApiBase(apiBase: string): string {
+  const u = new URL(apiBase);
+  const protocol = u.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${u.host}/ws`;
+}
+
+function getClientId(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c: any = typeof crypto !== "undefined" ? crypto : null;
+    if (c?.randomUUID) return c.randomUUID();
+  } catch {}
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatAt(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return value;
+    return d.toLocaleString();
+  }
+  if (Array.isArray(value)) {
+    // Suporta LocalDateTime serializado como array: [YYYY,MM,DD,HH,mm,ss,...]
+    const [y, m, d, hh = 0, mm = 0, ss = 0] = value as number[];
+    if (
+      typeof y === "number" &&
+      typeof m === "number" &&
+      typeof d === "number"
+    ) {
+      return new Date(y, m - 1, d, hh, mm, ss).toLocaleString();
+    }
+  }
+  return String(value);
+}
+
+function parseVersionConflictMessage(msg: string): {
+  expected?: number;
+  actual?: number;
+} {
+  if (!msg) return {};
+  // Ex.: "Versão desatualizada. expected=20 actual=21"
+  const expectedMatch = msg.match(/expected\s*=\s*(\d+)/i);
+  const actualMatch = msg.match(/actual\s*=\s*(\d+)/i);
+  const expected = expectedMatch ? parseInt(expectedMatch[1], 10) : undefined;
+  const actual = actualMatch ? parseInt(actualMatch[1], 10) : undefined;
+  return {
+    expected: Number.isFinite(expected as number) ? expected : undefined,
+    actual: Number.isFinite(actual as number) ? actual : undefined,
+  };
+}
 
 // ============================================================================
 // STORAGE SERVICE - Camada abstrata para persistência (localStorage ou API)
@@ -101,6 +198,7 @@ interface TextBox {
   content: string;
   rotation?: number;
   zIndex?: number;
+  locked?: boolean;
   fontFamily?: string;
   fontSize?: number;
   fontWeight?: "normal" | "bold";
@@ -119,6 +217,7 @@ interface SlideImage {
   src: string;
   rotation?: number;
   zIndex?: number;
+  locked?: boolean;
 }
 
 interface Slide {
@@ -431,6 +530,227 @@ const ImageCropper = ({
   );
 };
 
+const ColorHighlightModal = ({
+  initialColor,
+  onClose,
+  onApply,
+}: {
+  initialColor: string;
+  onClose: () => void;
+  onApply: (hex: string) => void;
+}) => {
+  const normalizeHex = (raw: string) => {
+    const trimmed = (raw || "").trim().toUpperCase();
+    if (!trimmed) return "";
+    const withHash = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+    return withHash.replace(/[^#0-9A-F]/g, "");
+  };
+
+  const expand3To6 = (hex: string) => {
+    // expects #RGB
+    const h = hex.replace("#", "");
+    return `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}`;
+  };
+
+  const toApplyableHex = (raw: string): string | null => {
+    const normalized = normalizeHex(raw);
+    if (!normalized) return null;
+    if (/^#[0-9A-F]{6}$/.test(normalized)) return normalized;
+    if (/^#[0-9A-F]{3}$/.test(normalized)) return expand3To6(normalized);
+    return null;
+  };
+
+  const toColorInputValue = (raw: string) => {
+    const applyable = toApplyableHex(raw);
+    return applyable || "#000000";
+  };
+
+  const [draft, setDraft] = useState<string>(normalizeHex(initialColor) || "#FFFF00");
+
+  useEffect(() => {
+    const trimmed = (initialColor || "").trim().toUpperCase();
+    const withHash = trimmed
+      ? trimmed.startsWith("#")
+        ? trimmed
+        : `#${trimmed}`
+      : "";
+    const normalized = withHash ? withHash.replace(/[^#0-9A-F]/g, "") : "";
+    setDraft(normalized || "#FFFF00");
+  }, [initialColor]);
+
+  const applySelected = () => {
+    const applyable = toApplyableHex(draft);
+    if (!applyable) return;
+    setDraft(applyable);
+    onApply(applyable);
+  };
+
+  return (
+    <div
+      className="modal-root"
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10000000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          backgroundColor: "white",
+          padding: "20px",
+          borderRadius: "8px",
+          width: "min(560px, calc(100vw - 40px))",
+          boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+            marginBottom: 10,
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0 }}>Selecionar Cor</h3>
+            <div style={{ fontSize: 12, color: "#6B7280" }}>
+              Use o seletor ou digite o HEX.
+            </div>
+          </div>
+
+          <div
+            title={normalizeHex(draft) || ""}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.15)",
+              background: toApplyableHex(draft) || "transparent",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.10)",
+            }}
+          />
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 140px",
+            gap: 10,
+            marginTop: 8,
+            marginBottom: 16,
+            alignItems: "end",
+          }}
+        >
+          <div>
+            <label
+              style={{
+                display: "block",
+                marginBottom: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#111827",
+              }}
+            >
+              Código HEX
+            </label>
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(normalizeHex(e.target.value))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applySelected();
+                }
+              }}
+              placeholder="#FFFFFF"
+              style={{
+                width: "100%",
+                height: 36,
+                padding: "0 10px",
+                borderRadius: 8,
+                border: "1px solid rgba(0,0,0,0.15)",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              style={{
+                display: "block",
+                marginBottom: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#111827",
+              }}
+            >
+              Seletor
+            </label>
+            <input
+              type="color"
+              value={toColorInputValue(draft)}
+              onChange={(e) => setDraft(normalizeHex(e.target.value))}
+              style={{
+                width: "100%",
+                height: 36,
+                padding: 0,
+                borderRadius: 8,
+                border: "1px solid rgba(0,0,0,0.15)",
+                background: "transparent",
+              }}
+              title="Escolher cor"
+            />
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            onClick={applySelected}
+            style={{
+              flex: 1,
+              padding: "10px",
+              backgroundColor: "#f8894a",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            Aplicar
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              padding: "10px",
+              backgroundColor: "#e9665c",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const DraggableResizableImage = ({
   img,
   onMove,
@@ -468,6 +788,8 @@ const DraggableResizableImage = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [widthInput, setWidthInput] = useState<string>(String(img.width));
+  const [heightInput, setHeightInput] = useState<string>(String(img.height));
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [resizeSide, setResizeSide] = useState("");
   const [resizeStart, setResizeStart] = useState({
@@ -486,6 +808,23 @@ const DraggableResizableImage = ({
     cx: 0,
     cy: 0,
   });
+
+  useEffect(() => {
+    // Mantém inputs sincronizados quando a imagem é redimensionada via drag.
+    setWidthInput(String(img.width));
+    setHeightInput(String(img.height));
+  }, [img.width, img.height]);
+
+  const clampResizeToSlide = (w: number, h: number) => {
+    const minSize = 50;
+    const slideW = slideContainerRef.current?.clientWidth ?? Infinity;
+    const slideH = slideContainerRef.current?.clientHeight ?? Infinity;
+    const maxW = Number.isFinite(slideW) ? Math.max(minSize, slideW - img.x) : w;
+    const maxH = Number.isFinite(slideH) ? Math.max(minSize, slideH - img.y) : h;
+    const cw = Math.max(minSize, Math.min(w, maxW));
+    const ch = Math.max(minSize, Math.min(h, maxH));
+    return { w: cw, h: ch };
+  };
 
   const handleContainerMouseDown = (e: React.MouseEvent) => {
     // Evita iniciar drag quando clicar em qualquer handle de resize/rotate
@@ -565,6 +904,7 @@ const DraggableResizableImage = ({
   const handleResizeMouseDown = (e: React.MouseEvent, side: string) => {
     e.stopPropagation();
     e.preventDefault();
+    onSelect?.();
     // Garante que não vamos entrar em modo de drag/rotate simultaneamente
     setIsDragging(false);
     setIsRotating(false);
@@ -783,9 +1123,10 @@ const DraggableResizableImage = ({
         zIndex: img.zIndex ?? 1,
         transform: `rotate(${img.rotation ?? 0}deg)`,
         transformOrigin: "center",
-        cursor: isDragging ? "grabbing" : "grab",
-        border: isHovered ? "1px dashed #f88a4ab2" : "1px dashed transparent",
+        cursor: img.locked ? "default" : isDragging ? "grabbing" : "grab",
+        border: "none",
         userSelect: "none", // Evita highlight azul durante o drag
+        pointerEvents: img.locked ? "none" : "auto",
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -794,7 +1135,7 @@ const DraggableResizableImage = ({
     >
       {/* Removido: faixa de arrasto no topo para liberar a área de resize */}
       {/* Rotate Handle (quando selecionado ou hover) */}
-      {(selected || isHovered) && (
+      {!img.locked && (selected || isHovered) && (
         <div
           style={{
             position: "absolute",
@@ -813,7 +1154,7 @@ const DraggableResizableImage = ({
           onMouseDown={handleRotateMouseDown}
         />
       )}
-      {isRotating && selected && (
+      {isRotating && selected && !img.locked && (
         <div
           style={{
             position: "absolute",
@@ -833,7 +1174,85 @@ const DraggableResizableImage = ({
         </div>
       )}
       {/* Resize Handles */}
+      {/* Mid-side handles (mais fáceis de pegar que a borda fina) */}
+      {!img.locked && (selected || isHovered) && (
+        <>
+          {/* Mid-Right */}
+          <div
+            style={{
+              position: "absolute",
+              right: 0,
+              top: "50%",
+              transform: "translate(50%, -50%)",
+              width: 14,
+              height: 14,
+              borderRadius: 3,
+              cursor: "e-resize",
+              zIndex: 70,
+              background: "#f88a4ab2",
+              boxShadow: "0 0 0 2px white",
+            }}
+            className="resize-handle"
+            onMouseDown={(e) => handleResizeMouseDown(e, "right")}
+          />
+          {/* Mid-Left */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 14,
+              height: 14,
+              borderRadius: 3,
+              cursor: "w-resize",
+              zIndex: 70,
+              background: "#f88a4ab2",
+              boxShadow: "0 0 0 2px white",
+            }}
+            className="resize-handle"
+            onMouseDown={(e) => handleResizeMouseDown(e, "left")}
+          />
+          {/* Mid-Top */}
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 14,
+              height: 14,
+              borderRadius: 3,
+              cursor: "n-resize",
+              zIndex: 70,
+              background: "#f88a4ab2",
+              boxShadow: "0 0 0 2px white",
+            }}
+            className="resize-handle"
+            onMouseDown={(e) => handleResizeMouseDown(e, "top")}
+          />
+          {/* Mid-Bottom */}
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: "50%",
+              transform: "translate(-50%, 50%)",
+              width: 14,
+              height: 14,
+              borderRadius: 3,
+              cursor: "s-resize",
+              zIndex: 70,
+              background: "#f88a4ab2",
+              boxShadow: "0 0 0 2px white",
+            }}
+            className="resize-handle"
+            onMouseDown={(e) => handleResizeMouseDown(e, "bottom")}
+          />
+        </>
+      )}
       {/* Right */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -843,13 +1262,15 @@ const DraggableResizableImage = ({
           height: "100%",
           cursor: "e-resize",
           zIndex: 50,
-          background: isHovered ? "#f88a4ab2" : "rgba(0,0,0,0.0001)",
+          background: "rgba(0,0,0,0.0001)",
           pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "right")}
       />
+      )}
       {/* Left */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -859,14 +1280,16 @@ const DraggableResizableImage = ({
           height: "100%",
           cursor: "w-resize",
           zIndex: 50,
-          background: isHovered ? "#f88a4ab2" : "rgba(0,0,0,0.0001)",
+          background: "rgba(0,0,0,0.0001)",
           pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "left")}
       />
+      )}
 
       {/* Bottom */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -876,13 +1299,15 @@ const DraggableResizableImage = ({
           height: "10px",
           cursor: "s-resize",
           zIndex: 50,
-          background: isHovered ? "#f88a4ab2" : "rgba(0,0,0,0.0001)",
+          background: "rgba(0,0,0,0.0001)",
           pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "bottom")}
       />
+      )}
       {/* Top */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -892,13 +1317,15 @@ const DraggableResizableImage = ({
           height: "10px",
           cursor: "n-resize",
           zIndex: 50,
-          background: isHovered ? "#f88a4ab2" : "rgba(0,0,0,0.0001)",
+          background: "rgba(0,0,0,0.0001)",
           pointerEvents: "auto",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "top")}
       />
+      )}
       {/* Bottom-Right */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -909,13 +1336,16 @@ const DraggableResizableImage = ({
           cursor: "se-resize",
           // Fica acima dos handles de borda (right/bottom) para permitir resize diagonal.
           zIndex: 60,
-          background: isHovered ? "#f88a4ab2" : "transparent",
+          background: selected || isHovered ? "#f88a4ab2" : "transparent",
           pointerEvents: "auto",
+          boxShadow: selected || isHovered ? "0 0 0 2px white" : "none",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "bottom-right")}
       />
+      )}
       {/* Top-Left */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -926,13 +1356,16 @@ const DraggableResizableImage = ({
           cursor: "nw-resize",
           // Fica acima dos handles de borda (left/top) para permitir resize diagonal.
           zIndex: 60,
-          background: isHovered ? "#f88a4ab2" : "transparent",
+          background: selected || isHovered ? "#f88a4ab2" : "transparent",
           pointerEvents: "auto",
+          boxShadow: selected || isHovered ? "0 0 0 2px white" : "none",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "top-left")}
       />
+      )}
       {/* Top-Right */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -943,13 +1376,16 @@ const DraggableResizableImage = ({
           cursor: "ne-resize",
           // Fica acima dos handles de borda (right/top) para permitir resize diagonal.
           zIndex: 60,
-          background: isHovered ? "#f88a4ab2" : "transparent",
+          background: selected || isHovered ? "#f88a4ab2" : "transparent",
           pointerEvents: "auto",
+          boxShadow: selected || isHovered ? "0 0 0 2px white" : "none",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "top-right")}
       />
+      )}
       {/* Bottom-Left */}
+      {!img.locked && (
       <div
         style={{
           position: "absolute",
@@ -960,13 +1396,15 @@ const DraggableResizableImage = ({
           cursor: "sw-resize",
           // Fica acima dos handles de borda (left/bottom) para permitir resize diagonal.
           zIndex: 60,
-          background: isHovered ? "#f88a4ab2" : "transparent",
+          background: selected || isHovered ? "#f88a4ab2" : "transparent",
           pointerEvents: "auto",
+          boxShadow: selected || isHovered ? "0 0 0 2px white" : "none",
         }}
         className="resize-handle"
         onMouseDown={(e) => handleResizeMouseDown(e, "bottom-left")}
       />
-      {isHovered && (
+      )}
+      {isHovered && !img.locked && (
         <div className="image-toolbar">
           <button
             onClick={(e) => {
@@ -977,6 +1415,103 @@ const DraggableResizableImage = ({
           >
             ✂️
           </button>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "0 6px",
+            }}
+            onMouseDown={(e) => {
+              // Não iniciar drag/resize ao clicar nos inputs
+              e.stopPropagation();
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 12,
+              }}
+              title="Largura (px)"
+            >
+              W
+              <input
+                type="number"
+                value={widthInput}
+                min={50}
+                style={{
+                  width: 70,
+                  height: 26,
+                  borderRadius: 6,
+                  border: "1px solid rgba(0,0,0,0.15)",
+                  padding: "0 8px",
+                  fontSize: 12,
+                }}
+                onChange={(e) => setWidthInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const next = parseInt(widthInput, 10);
+                  if (isNaN(next)) return;
+                  const clamped = clampResizeToSlide(next, img.height);
+                  onResize(clamped.w, clamped.h);
+                }}
+                onBlur={() => {
+                  const next = parseInt(widthInput, 10);
+                  if (isNaN(next)) {
+                    setWidthInput(String(img.width));
+                    return;
+                  }
+                  const clamped = clampResizeToSlide(next, img.height);
+                  setWidthInput(String(clamped.w));
+                  onResize(clamped.w, clamped.h);
+                }}
+              />
+            </label>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: 12,
+              }}
+              title="Altura (px)"
+            >
+              H
+              <input
+                type="number"
+                value={heightInput}
+                min={50}
+                style={{
+                  width: 70,
+                  height: 26,
+                  borderRadius: 6,
+                  border: "1px solid rgba(0,0,0,0.15)",
+                  padding: "0 8px",
+                  fontSize: 12,
+                }}
+                onChange={(e) => setHeightInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const next = parseInt(heightInput, 10);
+                  if (isNaN(next)) return;
+                  const clamped = clampResizeToSlide(img.width, next);
+                  onResize(clamped.w, clamped.h);
+                }}
+                onBlur={() => {
+                  const next = parseInt(heightInput, 10);
+                  if (isNaN(next)) {
+                    setHeightInput(String(img.height));
+                    return;
+                  }
+                  const clamped = clampResizeToSlide(img.width, next);
+                  setHeightInput(String(clamped.h));
+                  onResize(clamped.w, clamped.h);
+                }}
+              />
+            </label>
+          </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -1051,6 +1586,7 @@ const DraggableTextBox = ({
   const [minWidth, setMinWidth] = useState(150);
   const [minHeight, setMinHeight] = useState(30);
   const [isEditing, setIsEditing] = useState(false);
+  const [shouldOverflowY, setShouldOverflowY] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [resizeSide, setResizeSide] = useState("");
   const [resizeStart, setResizeStart] = useState({
@@ -1073,12 +1609,64 @@ const DraggableTextBox = ({
     cy: 0,
   });
 
+  // Se outra caixa/imagem for selecionada, esta caixa deve perder o modo de edição
+  // (senão ela continua com borda por causa do isEditing e parece "não desselecionar").
+  useEffect(() => {
+    if (selected) return;
+    if (isEditing) setIsEditing(false);
+    if (isDragging) setIsDragging(false);
+    if (isResizing) setIsResizing(false);
+    if (isRotating) setIsRotating(false);
+    setResizeSide("");
+    setShouldOverflowY(false);
+  }, [selected]);
+
+  const getSlideClientSize = () => {
+    const w = slideContainerRef.current?.clientWidth ?? slideWidth ?? 0;
+    const h = slideContainerRef.current?.clientHeight ?? slideHeight ?? 0;
+    return { w, h };
+  };
+
+  const clampSizeToSlide = (width: number, height: number, x: number, y: number) => {
+    const { w: slideW, h: slideH } = getSlideClientSize();
+    const maxW = slideW ? Math.max(minWidth, slideW - x) : Infinity;
+    const maxH = slideH ? Math.max(minHeight, slideH - y) : Infinity;
+    return {
+      width: Math.max(minWidth, Math.min(width, maxW)),
+      height: Math.max(minHeight, Math.min(height, maxH)),
+    };
+  };
+
+  const recomputeOverflowY = () => {
+    const el = textRef.current;
+    if (!el) return;
+    const contentHeight = el.scrollHeight;
+    const available = slideHeight ? Math.max(minHeight, slideHeight - box.y) : Infinity;
+    const needsScroll = Number.isFinite(available) && contentHeight > available;
+    setShouldOverflowY(needsScroll);
+  };
+
   // Inicializar conteúdo HTML
   useEffect(() => {
     if (textRef.current && textRef.current.innerHTML === "" && box.content) {
       textRef.current.innerHTML = box.content;
     }
   }, []);
+
+  // Mantém o conteúdo sincronizado quando `box.content` mudar (ex.: atualização remota via WS).
+  // Importante: não sobrescrever enquanto o usuário está editando localmente.
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+    if (isEditing) return;
+    const nextHtml = box.content || "";
+    if (el.innerHTML !== nextHtml) {
+      el.innerHTML = nextHtml;
+      window.requestAnimationFrame(() => {
+        recomputeOverflowY();
+      });
+    }
+  }, [box.content, isEditing]);
 
   // Calcular tamanho ideal do texto apenas na primeira renderização ou quando estilos mudam
   useEffect(() => {
@@ -1089,16 +1677,24 @@ const DraggableTextBox = ({
           const scrollWidth = textRef.current.scrollWidth;
           const scrollHeight = textRef.current.scrollHeight;
 
+          const { w: slideW, h: slideH } = getSlideClientSize();
+          const maxW = slideW ? Math.max(minWidth, slideW - box.x) : Infinity;
+          const maxH = slideH ? Math.max(minHeight, slideH - box.y) : Infinity;
+
           // Se a caixa não tem tamanho definido ou é o tamanho padrão, usar o tamanho do conteúdo
           if (!box.width || box.width === minWidth) {
+            const nextW = Math.max(scrollWidth + 10, minWidth);
+            const nextH = box.height || Math.max(scrollHeight + 5, minHeight);
             onResize(
-              Math.max(scrollWidth + 10, minWidth),
-              box.height || Math.max(scrollHeight + 5, minHeight)
+              Math.max(minWidth, Math.min(nextW, maxW)),
+              Math.max(minHeight, Math.min(nextH, maxH))
             );
           } else if (!box.height || box.height === minHeight) {
+            const nextW = box.width || minWidth;
+            const nextH = Math.max(scrollHeight + 5, minHeight);
             onResize(
-              box.width || minWidth,
-              Math.max(scrollHeight + 5, minHeight)
+              Math.max(minWidth, Math.min(nextW, maxW)),
+              Math.max(minHeight, Math.min(nextH, maxH))
             );
           }
           hasCalculatedSizeRef.current = true;
@@ -1137,6 +1733,7 @@ const DraggableTextBox = ({
   // Seleção global controlada pelo componente pai; nenhum listener local para deselecionar
 
   const handleDoubleClick = () => {
+    if (box.locked) return;
     setIsEditing(true);
     setTimeout(() => {
       if (textRef.current) {
@@ -1147,15 +1744,28 @@ const DraggableTextBox = ({
         const sel = window.getSelection();
         sel?.removeAllRanges();
         sel?.addRange(range);
+
+        // Só ativa scroll se o conteúdo iria ultrapassar o slide.
+        recomputeOverflowY();
       }
     }, 0);
   };
 
   const handleBlur = () => {
     setIsEditing(false);
+    setShouldOverflowY(false);
   };
 
+  // Enquanto edita, reavaliar quando conteúdo/tamanho/posição mudarem.
+  useEffect(() => {
+    if (!isEditing) return;
+    const t = window.setTimeout(() => recomputeOverflowY(), 0);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing, box.content, box.height, box.y, slideHeight]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (box.locked) return;
     setIsDragging(true);
     if (slideContainerRef.current) {
       const rect = slideContainerRef.current.getBoundingClientRect();
@@ -1174,6 +1784,7 @@ const DraggableTextBox = ({
   const handleRotateMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    if (box.locked) return;
     if (!slideContainerRef.current) return;
     const rect = slideContainerRef.current.getBoundingClientRect();
     const w = box.width || minWidth;
@@ -1234,8 +1845,18 @@ const DraggableTextBox = ({
           newWidth = Math.max(minWidth, resizeStart.width + deltaX);
           newWidth = Math.min(newWidth, containerW - box.x);
         } else if (resizeSide === "left") {
+          const containerW = slideContainerRef.current.clientWidth;
           newX = Math.max(0, resizeStart.originalX + deltaX);
           newWidth = Math.max(minWidth, resizeStart.width - deltaX);
+          // Garante que a largura não ultrapasse o slide ao redimensionar pelo lado esquerdo
+          const maxW = Math.max(minWidth, containerW - newX);
+          if (newWidth > maxW) {
+            newWidth = maxW;
+          }
+          // Se o maxW ficou menor que o minWidth (muito perto da borda direita), recua X
+          if (containerW - newX < minWidth) {
+            newX = Math.max(0, containerW - minWidth);
+          }
         } else if (resizeSide === "bottom") {
           const containerH = slideContainerRef.current.clientHeight;
           newHeight = Math.max(minHeight, resizeStart.height + deltaY);
@@ -1315,202 +1936,209 @@ const DraggableTextBox = ({
         height: box.height || minHeight || "auto",
         minWidth: minWidth,
         minHeight: minHeight,
+        maxWidth: slideWidth ? Math.max(minWidth, slideWidth - box.x) : undefined,
+        maxHeight: slideHeight ? Math.max(minHeight, slideHeight - box.y) : undefined,
         zIndex: box.zIndex ?? 1,
         transform: `rotate(${box.rotation ?? 0}deg)`,
         transformOrigin: "center",
         border:
           selected || isHovered || isEditing ? "1px dashed #f88a4ab2" : "none",
         background: "transparent",
-        cursor: isDragging ? "grabbing" : "grab",
+        cursor: box.locked ? "default" : isDragging ? "grabbing" : "grab",
         overflow: "visible",
+        pointerEvents: box.locked ? "none" : "auto",
       }}
       onClick={() => {
         // Seleciona ao clicar e mantém seleção até clicar fora (controlado pelo pai)
+        if (box.locked) return;
         onSelect?.(slideId, box.id);
       }}
-      onDoubleClick={handleDoubleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <div
-        ref={handleRef}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "5px",
-          cursor: "move",
-          zIndex: 3,
-        }}
-        onMouseDown={handleMouseDown}
-      />
-      {/* Resize handles */}
-      <div
-        style={{
-          position: "absolute",
-          right: 0,
-          top: 0,
-          width: "5px",
-          height: "100%",
-          cursor: "e-resize",
-          zIndex: 4,
-          background: "transparent",
-        }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          if (slideContainerRef.current) {
-            const rect = slideContainerRef.current.getBoundingClientRect();
-            setResizeStart({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-              width: box.width || minWidth,
-              height: box.height || minHeight,
-              originalX: box.x,
-              originalY: box.y,
-            });
-          }
-          setIsResizing(true);
-          setResizeSide("right");
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: "5px",
-          height: "100%",
-          cursor: "w-resize",
-          zIndex: 4,
-          background: "transparent",
-        }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          if (slideContainerRef.current) {
-            const rect = slideContainerRef.current.getBoundingClientRect();
-            setResizeStart({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-              width: box.width || minWidth,
-              height: box.height || minHeight,
-              originalX: box.x,
-              originalY: box.y,
-            });
-          }
-          setIsResizing(true);
-          setResizeSide("left");
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          width: "100%",
-          height: "5px",
-          cursor: "s-resize",
-          zIndex: 4,
-          background: "transparent",
-        }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          if (slideContainerRef.current) {
-            const rect = slideContainerRef.current.getBoundingClientRect();
-            setResizeStart({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-              width: box.width || minWidth,
-              height: box.height || minHeight,
-              originalX: box.x,
-              originalY: box.y,
-            });
-          }
-          setIsResizing(true);
-          setResizeSide("bottom");
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          right: 0,
-          bottom: 0,
-          width: "5px",
-          height: "5px",
-          cursor: "se-resize",
-          zIndex: 4,
-          background: "transparent",
-        }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          if (slideContainerRef.current) {
-            const rect = slideContainerRef.current.getBoundingClientRect();
-            setResizeStart({
-              x: e.clientX - rect.left,
-              y: e.clientY - rect.top,
-              width: box.width || minWidth,
-              height: box.height || minHeight,
-              originalX: box.x,
-              originalY: box.y,
-            });
-          }
-          setIsResizing(true);
-          setResizeSide("bottom-right");
-        }}
-      />
-      {/* Rotate Handle (quando selecionado ou hover) */}
-      {(selected || isHovered) && (
-        <div
-          style={{
-            position: "absolute",
-            top: -18,
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: 12,
-            height: 12,
-            borderRadius: 12,
-            background: selected ? "#f88a4a" : "#f88a4ab2",
-            cursor: "grab",
-            zIndex: 5,
-          }}
-          onMouseDown={handleRotateMouseDown}
-        />
-      )}
-      {isRotating && selected && (
-        <div
-          style={{
-            position: "absolute",
-            top: -40,
-            left: "50%",
-            transform: `translateX(-50%) rotate(${-(box.rotation ?? 0)}deg)`,
-            background: "rgba(0,0,0,0.6)",
-            color: "white",
-            padding: "2px 6px",
-            borderRadius: 4,
-            fontSize: 12,
-            zIndex: 7,
-            pointerEvents: "none",
-          }}
-        >
-          {(box.rotation ?? 0).toFixed(0)}°
-        </div>
-      )}
-      {(selected || isHovered) && onDelete && (
-        <div className="textbox-toolbar" onClick={(e) => e.stopPropagation()}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
+      {!box.locked && (
+        <>
+          <div
+            ref={handleRef}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "5px",
+              cursor: "move",
+              zIndex: 3,
             }}
-            title="Excluir"
-          >
-            🗑️
-          </button>
-        </div>
+            onMouseDown={handleMouseDown}
+          />
+          {/* Resize handles */}
+          <div
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              width: "5px",
+              height: "100%",
+              cursor: "e-resize",
+              zIndex: 4,
+              background: selected ? "#f88a4ab2" : "transparent",
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (slideContainerRef.current) {
+                const rect = slideContainerRef.current.getBoundingClientRect();
+                setResizeStart({
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top,
+                  width: box.width || minWidth,
+                  height: box.height || minHeight,
+                  originalX: box.x,
+                  originalY: box.y,
+                });
+              }
+              setIsResizing(true);
+              setResizeSide("right");
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              width: "5px",
+              height: "100%",
+              cursor: "w-resize",
+              zIndex: 4,
+              background: selected ? "#f88a4ab2" : "transparent",
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (slideContainerRef.current) {
+                const rect = slideContainerRef.current.getBoundingClientRect();
+                setResizeStart({
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top,
+                  width: box.width || minWidth,
+                  height: box.height || minHeight,
+                  originalX: box.x,
+                  originalY: box.y,
+                });
+              }
+              setIsResizing(true);
+              setResizeSide("left");
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              width: "100%",
+              height: "5px",
+              cursor: "s-resize",
+              zIndex: 4,
+              background: selected ? "#f88a4ab2" : "transparent",
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (slideContainerRef.current) {
+                const rect = slideContainerRef.current.getBoundingClientRect();
+                setResizeStart({
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top,
+                  width: box.width || minWidth,
+                  height: box.height || minHeight,
+                  originalX: box.x,
+                  originalY: box.y,
+                });
+              }
+              setIsResizing(true);
+              setResizeSide("bottom");
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              right: 0,
+              bottom: 0,
+              width: "5px",
+              height: "5px",
+              cursor: "se-resize",
+              zIndex: 4,
+              background: selected ? "#f88a4ab2" : "transparent",
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (slideContainerRef.current) {
+                const rect = slideContainerRef.current.getBoundingClientRect();
+                setResizeStart({
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top,
+                  width: box.width || minWidth,
+                  height: box.height || minHeight,
+                  originalX: box.x,
+                  originalY: box.y,
+                });
+              }
+              setIsResizing(true);
+              setResizeSide("bottom-right");
+            }}
+          />
+          {/* Rotate Handle (quando selecionado ou hover) */}
+          {(selected || isHovered) && (
+            <div
+              style={{
+                position: "absolute",
+                top: -18,
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: 12,
+                height: 12,
+                borderRadius: 12,
+                background: selected ? "#f88a4a" : "#f88a4ab2",
+                cursor: "grab",
+                zIndex: 5,
+              }}
+              onMouseDown={handleRotateMouseDown}
+            />
+          )}
+          {isRotating && selected && (
+            <div
+              style={{
+                position: "absolute",
+                top: -40,
+                left: "50%",
+                transform: `translateX(-50%) rotate(${-(box.rotation ?? 0)}deg)`,
+                background: "rgba(0,0,0,0.6)",
+                color: "white",
+                padding: "2px 6px",
+                borderRadius: 4,
+                fontSize: 12,
+                zIndex: 7,
+                pointerEvents: "none",
+              }}
+            >
+              {(box.rotation ?? 0).toFixed(0)}°
+            </div>
+          )}
+          {(selected || isHovered) && onDelete && (
+            <div className="textbox-toolbar" onClick={(e) => e.stopPropagation()}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                title="Excluir"
+              >
+                🗑️
+              </button>
+            </div>
+          )}
+        </>
       )}
       <div
         ref={textRef}
@@ -1530,19 +2158,19 @@ const DraggableTextBox = ({
           whiteSpace: "pre-wrap",
           wordWrap: "break-word",
           overflowWrap: "break-word",
+          maxWidth: "100%",
+          maxHeight: "100%",
+          overflowY: shouldOverflowY ? "auto" : "visible",
         }}
         onInput={(e) => {
           // Atualiza conteúdo
           onChange(e.currentTarget.innerHTML);
 
-          // Auto-ajuste de altura conforme o conteúdo cresce/diminui
-          const el = e.currentTarget;
-          const contentHeight = el.scrollHeight;
-          const desiredHeight = Math.max(minHeight, contentHeight);
-          const currentHeight = box.height || minHeight;
-          if (desiredHeight !== currentHeight) {
-            onResize(box.width || minWidth, desiredHeight);
-          }
+          // Não muda o tamanho da caixa enquanto digita.
+          // Scroll só aparece quando o conteúdo iria ultrapassar o slide.
+          window.requestAnimationFrame(() => {
+            recomputeOverflowY();
+          });
         }}
         onMouseUp={() => {
           // Salvar a seleção quando o usuário termina de selecionar
@@ -1963,7 +2591,7 @@ const ThumbnailItem = ({
               <img
                 src={img.src}
                 alt="thumb"
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                style={{ width: "100%", height: "100%", objectFit: "fill" }}
               />
             </div>
           ))}
@@ -2084,7 +2712,10 @@ export default function PublicacoesPage() {
     "left" | "center" | "right" | "justify"
   >("left");
   const [showColorModal, setShowColorModal] = useState(false);
-  const [selectedColor, setSelectedColor] = useState<string>("#FFFF00");
+  const [zInput, setZInput] = useState<string>("");
+  const [colorModalInitialHex, setColorModalInitialHex] = useState<string>(
+    "#FFFF00"
+  );
   const [tags, setTags] = useState("");
   const [croppingImage, setCroppingImage] = useState<{
     slideId: number;
@@ -2098,9 +2729,31 @@ export default function PublicacoesPage() {
   const [canSaveToApi, setCanSaveToApi] = useState<boolean>(!turmaId);
   const [isRedirecting, setIsRedirecting] = useState<boolean>(false);
   const saveTimeoutRef = useRef<number | null>(null);
+  const [instrumentoVersion, setInstrumentoVersion] = useState<number | null>(
+    null
+  );
+  const [wsConnected, setWsConnected] = useState<boolean>(false);
+  const stompClientRef = useRef<Client | null>(null);
+  const clientIdRef = useRef<string>(getClientId());
+  const applyingRemoteRef = useRef<boolean>(false);
+  const pendingWsSaveRef = useRef<boolean>(false);
+  const wsDirtyWhileSavingRef = useRef<boolean>(false);
+  const pendingWsSavedJsonRef = useRef<string | null>(null);
+  const lastSavedSlidesJsonRef = useRef<string>("");
+  const dirtySinceLastPersistRef = useRef<boolean>(false);
+  const slidesRef = useRef<Slide[]>(slides);
+  const versionRef = useRef<number | null>(instrumentoVersion);
+  const [changeLogs, setChangeLogs] = useState<InstrumentoChangeLogDto[]>([]);
+  const visibleChangeLogs = changeLogs.filter(isUserVisibleChangeLog);
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [lastSaveError, setLastSaveError] = useState<string | null>(null);
+
+  const conflictRetryRef = useRef<{ lastAt: number; lastActual: number | null }>(
+    { lastAt: 0, lastActual: null }
+  );
+  const suppressAutosaveUntilRef = useRef<number>(0);
   const [shouldUsePost, setShouldUsePost] = useState<boolean>(!!turmaId);
 
   // Sempre usar POST na primeira gravação quando mudar a turma
@@ -2108,7 +2761,232 @@ export default function PublicacoesPage() {
     setShouldUsePost(!!turmaId);
     setCanSaveToApi(!turmaId);
     setIsRedirecting(false);
+    setInstrumentoVersion(null);
+    setChangeLogs([]);
+    setLastSaveError(null);
+    lastSavedSlidesJsonRef.current = "";
+    pendingWsSavedJsonRef.current = null;
+    dirtySinceLastPersistRef.current = false;
+    suppressAutosaveUntilRef.current = 0;
   }, [turmaId]);
+
+  useEffect(() => {
+    slidesRef.current = slides;
+  }, [slides]);
+
+  // ---------------------------------------------------------------------------
+  // Undo/Redo (Ctrl+Z / Ctrl+Y) para estado do slide (não interfere com edição de texto)
+  // ---------------------------------------------------------------------------
+  const undoStackRef = useRef<string[]>([]);
+  const redoStackRef = useRef<string[]>([]);
+  const historyBaselineJsonRef = useRef<string>("");
+  const historyInitializedRef = useRef<boolean>(false);
+  const isApplyingHistoryRef = useRef<boolean>(false);
+  const historyPendingFromJsonRef = useRef<string | null>(null);
+  const historyDebounceTimerRef = useRef<number | null>(null);
+  const HISTORY_MAX = 60;
+  const HISTORY_DEBOUNCE_MS = 350;
+
+  const getSlidesJson = (value: Slide[]) => {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  };
+
+  const initHistoryIfNeeded = () => {
+    if (historyInitializedRef.current) return;
+    // Só inicializa quando o editor já está pronto pra editar.
+    if (turmaId && (loading || !loadedFromApi)) return;
+    historyBaselineJsonRef.current = getSlidesJson(slidesRef.current);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    historyPendingFromJsonRef.current = null;
+    if (historyDebounceTimerRef.current !== null) {
+      window.clearTimeout(historyDebounceTimerRef.current);
+      historyDebounceTimerRef.current = null;
+    }
+    historyInitializedRef.current = true;
+  };
+
+  const flushPendingHistoryCommit = () => {
+    if (!historyInitializedRef.current) return;
+    if (historyDebounceTimerRef.current !== null) {
+      window.clearTimeout(historyDebounceTimerRef.current);
+      historyDebounceTimerRef.current = null;
+    }
+    const fromJson = historyPendingFromJsonRef.current;
+    historyPendingFromJsonRef.current = null;
+
+    const currentJson = getSlidesJson(slidesRef.current);
+    if (!currentJson) return;
+
+    // Se não havia pendência, apenas sincronize o baseline.
+    if (!fromJson) {
+      historyBaselineJsonRef.current = currentJson;
+      return;
+    }
+
+    if (currentJson === fromJson) {
+      historyBaselineJsonRef.current = currentJson;
+      return;
+    }
+
+    undoStackRef.current.push(fromJson);
+    if (undoStackRef.current.length > HISTORY_MAX) {
+      undoStackRef.current.splice(0, undoStackRef.current.length - HISTORY_MAX);
+    }
+    redoStackRef.current = [];
+    historyBaselineJsonRef.current = currentJson;
+  };
+
+  // Inicializa/reinicializa histórico quando trocar a turma
+  useEffect(() => {
+    historyInitializedRef.current = false;
+    historyBaselineJsonRef.current = "";
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    historyPendingFromJsonRef.current = null;
+    if (historyDebounceTimerRef.current !== null) {
+      window.clearTimeout(historyDebounceTimerRef.current);
+      historyDebounceTimerRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turmaId]);
+
+  // Captura alterações locais e empilha para undo.
+  // Importante: mudanças rápidas (drag/resize) são agrupadas (debounce), para não pegar "todos os frames".
+  useEffect(() => {
+    initHistoryIfNeeded();
+    if (!historyInitializedRef.current) return;
+    if (isApplyingHistoryRef.current) return;
+    const nextJson = getSlidesJson(slides);
+    if (!nextJson) return;
+
+    // Atualização remota/hidratação: não entra no histórico local e reseta baseline.
+    if (applyingRemoteRef.current) {
+      historyBaselineJsonRef.current = nextJson;
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      historyPendingFromJsonRef.current = null;
+      if (historyDebounceTimerRef.current !== null) {
+        window.clearTimeout(historyDebounceTimerRef.current);
+        historyDebounceTimerRef.current = null;
+      }
+      return;
+    }
+    const prevJson = historyBaselineJsonRef.current;
+    if (!nextJson || !prevJson) {
+      historyBaselineJsonRef.current = nextJson;
+      return;
+    }
+    if (nextJson === prevJson) return;
+
+    // Marca o início do "burst" (a 1ª mudança define o estado anterior a ser empilhado).
+    if (!historyPendingFromJsonRef.current) {
+      historyPendingFromJsonRef.current = prevJson;
+    }
+
+    // Debounce: várias mudanças rápidas viram 1 entrada no undo.
+    if (historyDebounceTimerRef.current !== null) {
+      window.clearTimeout(historyDebounceTimerRef.current);
+    }
+    historyDebounceTimerRef.current = window.setTimeout(() => {
+      historyDebounceTimerRef.current = null;
+      flushPendingHistoryCommit();
+    }, HISTORY_DEBOUNCE_MS);
+  }, [slides, turmaId, loading, loadedFromApi]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+      const modPressed = isMac ? e.metaKey : e.ctrlKey;
+      if (!modPressed) return;
+
+      const key = e.key.toLowerCase();
+      const isUndo = key === "z" && !e.shiftKey;
+      const isRedo = key === "y" || (key === "z" && e.shiftKey);
+      if (!isUndo && !isRedo) return;
+
+      const active = (document.activeElement as HTMLElement | null) ?? null;
+      const tag = active?.tagName?.toLowerCase() || "";
+      const isTypingTarget =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        Boolean(active && active.isContentEditable);
+      if (isTypingTarget) return;
+
+      initHistoryIfNeeded();
+      if (!historyInitializedRef.current) return;
+
+      // Garante que o estado atual (incluindo drag/resize em andamento) vire um único passo antes do undo/redo.
+      flushPendingHistoryCommit();
+
+      const currentJson = historyBaselineJsonRef.current || getSlidesJson(slidesRef.current);
+      if (!currentJson) return;
+
+      if (isUndo) {
+        const prevJson = undoStackRef.current.pop();
+        if (!prevJson) return;
+        e.preventDefault();
+        redoStackRef.current.push(currentJson);
+        isApplyingHistoryRef.current = true;
+        try {
+          const prevSlides = JSON.parse(prevJson) as Slide[];
+          historyBaselineJsonRef.current = prevJson;
+          setSlides(prevSlides);
+        } finally {
+          window.setTimeout(() => {
+            isApplyingHistoryRef.current = false;
+          }, 0);
+        }
+        return;
+      }
+
+      if (isRedo) {
+        const nextJson = redoStackRef.current.pop();
+        if (!nextJson) return;
+        e.preventDefault();
+        undoStackRef.current.push(currentJson);
+        isApplyingHistoryRef.current = true;
+        try {
+          const nextSlides = JSON.parse(nextJson) as Slide[];
+          historyBaselineJsonRef.current = nextJson;
+          setSlides(nextSlides);
+        } finally {
+          window.setTimeout(() => {
+            isApplyingHistoryRef.current = false;
+          }, 0);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turmaId, loading, loadedFromApi]);
+
+  // Marca "dirty" sempre que houver alteração local no conteúdo.
+  // Importante: updates remotos/hidratação setam `applyingRemoteRef.current = true`.
+  useEffect(() => {
+    if (!turmaId) return;
+    if (loading) return;
+    if (!loadedFromApi) return;
+    if (applyingRemoteRef.current) return;
+    if (Date.now() < suppressAutosaveUntilRef.current) return;
+    dirtySinceLastPersistRef.current = true;
+    // Se um save WS está em voo, marque que houve alteração durante o voo.
+    // O handler do ACK vai publicar o snapshot mais recente.
+    if (wsConnected && pendingWsSaveRef.current) {
+      wsDirtyWhileSavingRef.current = true;
+    }
+  }, [slides, turmaId, loading, loadedFromApi, wsConnected]);
+
+  useEffect(() => {
+    versionRef.current = instrumentoVersion;
+  }, [instrumentoVersion]);
 
   // Carregar via API quando houver turmaId
   useEffect(() => {
@@ -2134,17 +3012,36 @@ export default function PublicacoesPage() {
         }
         const data = await res.json();
         const raw = data?.slidesJson;
+        const versionRaw = data?.version;
+        if (typeof versionRaw === "number") {
+          setInstrumentoVersion(versionRaw);
+        } else if (typeof versionRaw === "string") {
+          const parsedV = parseInt(versionRaw, 10);
+          if (!Number.isNaN(parsedV)) setInstrumentoVersion(parsedV);
+        }
         if (typeof raw === "string") {
           try {
             const parsed = JSON.parse(raw);
             if (!cancelled && Array.isArray(parsed)) {
+              // Marca como hidratação: não disparar autosave por causa do load.
+              applyingRemoteRef.current = true;
+              suppressAutosaveUntilRef.current = Math.max(
+                suppressAutosaveUntilRef.current,
+                Date.now() + 1200
+              );
               setSlides(parsed as Slide[]);
+              lastSavedSlidesJsonRef.current = JSON.stringify(parsed);
+              dirtySinceLastPersistRef.current = false;
               // Seleciona o primeiro slide existente
               if (parsed.length > 0 && typeof parsed[0]?.id === "number") {
                 setCurrentSlideId(parsed[0].id);
               }
               setLoadedFromApi(true);
               setCanSaveToApi(true);
+
+              window.setTimeout(() => {
+                applyingRemoteRef.current = false;
+              }, 0);
             }
           } catch (e) {
             console.error("Falha ao parsear slidesJson:", e);
@@ -2166,6 +3063,331 @@ export default function PublicacoesPage() {
     };
   }, [turmaId]);
 
+  // Carregar log de alterações inicial (painel)
+  useEffect(() => {
+    let cancelled = false;
+    const loadLogs = async () => {
+      if (!turmaId) return;
+      if (!loadedFromApi) return;
+      try {
+        const res = await Requests.getInstrumentoChanges(turmaId, 50);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) {
+          setChangeLogs(data as InstrumentoChangeLogDto[]);
+        }
+      } catch (e) {
+        console.error("Erro ao carregar log de alterações:", e);
+      }
+    };
+    loadLogs();
+    return () => {
+      cancelled = true;
+    };
+  }, [turmaId, loadedFromApi]);
+
+  // Conectar WebSocket/STOMP para colaboração em tempo real
+  useEffect(() => {
+    if (!turmaId) return;
+    if (!loadedFromApi) return;
+
+    const apiBase = process.env.NEXT_PUBLIC_API_URL;
+    if (!apiBase) return;
+
+    const wsUrl = buildWsUrlFromApiBase(apiBase);
+    const client = new Client({
+      brokerURL: wsUrl,
+      reconnectDelay: 5000,
+      heartbeatIncoming: 10000,
+      heartbeatOutgoing: 10000,
+      debug: () => {
+        // manter silencioso por padrão
+      },
+    });
+
+    client.onConnect = () => {
+      setWsConnected(true);
+
+      client.subscribe(`/topic/instrumentos/${turmaId}`, (message: IMessage) => {
+        try {
+          const payload = JSON.parse(
+            message.body
+          ) as InstrumentoWsUpdateBroadcast;
+
+          if (typeof payload?.version === "number") {
+            setInstrumentoVersion(payload.version);
+            // Evita race: o próximo publish usa versionRef.current.
+            versionRef.current = payload.version;
+          }
+
+          // Evita eco visual do próprio cliente (mas mantém atualização de version/status)
+          if (payload?.clientId && payload.clientId === clientIdRef.current) {
+            if (pendingWsSaveRef.current) {
+              pendingWsSaveRef.current = false;
+              if (pendingWsSavedJsonRef.current) {
+                lastSavedSlidesJsonRef.current = pendingWsSavedJsonRef.current;
+                pendingWsSavedJsonRef.current = null;
+              }
+              dirtySinceLastPersistRef.current = false;
+              setLastSaveError(null);
+              setSaveStatus("saved");
+              window.setTimeout(() => setSaveStatus("idle"), 1200);
+            }
+
+            // Se o usuário alterou novamente enquanto o save estava em voo,
+            // enviamos imediatamente o snapshot mais recente.
+            if (wsDirtyWhileSavingRef.current) {
+              wsDirtyWhileSavingRef.current = false;
+              window.setTimeout(() => {
+                // Mostra "salvando" novamente e publica o estado atual.
+                setSaveStatus("saving");
+                publishWsSnapshot();
+              }, 0);
+            }
+            return;
+          }
+
+          if (Array.isArray(payload?.slides)) {
+            applyingRemoteRef.current = true;
+            suppressAutosaveUntilRef.current = Math.max(
+              suppressAutosaveUntilRef.current,
+              Date.now() + 1200
+            );
+            const remoteSlides = payload.slides as Slide[];
+            setSlides(remoteSlides);
+            try {
+              lastSavedSlidesJsonRef.current = JSON.stringify(remoteSlides);
+            } catch {}
+            dirtySinceLastPersistRef.current = false;
+            if (
+              remoteSlides.length > 0 &&
+              typeof remoteSlides[0]?.id === "number"
+            ) {
+              setCurrentSlideId((prev) => {
+                const stillExists = remoteSlides.some((s) => s.id === prev);
+                return stillExists ? prev : remoteSlides[0].id;
+              });
+            }
+            window.setTimeout(() => {
+              applyingRemoteRef.current = false;
+            }, 0);
+          }
+
+          if (payload?.logEntry) {
+            setChangeLogs((prev) => [payload.logEntry!, ...prev].slice(0, 50));
+          }
+        } catch (e) {
+          console.error("Falha ao processar broadcast WS:", e);
+        }
+      });
+
+      client.subscribe(
+        `/topic/instrumentos/${turmaId}/changes`,
+        (message: IMessage) => {
+        try {
+          const log = JSON.parse(message.body) as InstrumentoChangeLogDto;
+          if (!log || typeof log.id !== "number") return;
+          setChangeLogs((prev) => [log, ...prev].slice(0, 50));
+        } catch (e) {
+          console.error("Falha ao processar change log WS:", e);
+        }
+      });
+
+      client.subscribe(`/user/queue/instrumentos/errors`, async (message: IMessage) => {
+        const rawBody = typeof message.body === "string" ? message.body : "";
+        let err: InstrumentoWsError | null = null;
+        try {
+          err = JSON.parse(rawBody) as InstrumentoWsError;
+        } catch {
+          setSaveStatus("error");
+          pendingWsSaveRef.current = false;
+          pendingWsSavedJsonRef.current = null;
+          wsDirtyWhileSavingRef.current = false;
+          setLastSaveError(
+            `Erro WS (não-JSON): ${rawBody.slice(0, 280) || "<vazio>"}`
+          );
+          return;
+        }
+
+        if (!err?.code) {
+          setSaveStatus("error");
+          pendingWsSaveRef.current = false;
+          pendingWsSavedJsonRef.current = null;
+          wsDirtyWhileSavingRef.current = false;
+          setLastSaveError(
+            `Erro WS (sem code): ${rawBody.slice(0, 280) || "<vazio>"}`
+          );
+          return;
+        }
+
+        // Com a mesma conta aberta em múltiplas abas, o destino /user/** pode
+        // entregar a mensagem para todas as sessões. Filtramos por clientId.
+        if (err.clientId && err.clientId !== clientIdRef.current) {
+          return;
+        }
+
+        // Por padrão, liberamos as flags para permitir novas tentativas.
+        // (Vamos ajustar o saveStatus dependendo do tipo de erro.)
+        pendingWsSaveRef.current = false;
+        pendingWsSavedJsonRef.current = null;
+        wsDirtyWhileSavingRef.current = false;
+
+        if (err.code === "VERSION_CONFLICT") {
+          // Conflito é esperado em cenários de edição rápida/concorrente.
+          // Não "pisca" erro na UI quando vamos tentar novamente.
+          setSaveStatus("saving");
+          setLastSaveError(
+            `VERSION_CONFLICT${err.message ? `: ${err.message}` : ""}`
+          );
+
+          const parsed = parseVersionConflictMessage(err.message || "");
+          if (typeof parsed.actual === "number") {
+            setInstrumentoVersion(parsed.actual);
+            versionRef.current = parsed.actual;
+          }
+
+          // Tentativa automática (rate-limited): re-publica o snapshot local mais recente
+          // com a versão atualizada, sem sobrescrever o estado local com o backend.
+          const now = Date.now();
+          const last = conflictRetryRef.current;
+          const sameActual =
+            typeof parsed.actual === "number" && last.lastActual === parsed.actual;
+          const tooSoon = now - last.lastAt < 1500;
+
+          if (!tooSoon || !sameActual) {
+            conflictRetryRef.current = {
+              lastAt: now,
+              lastActual: typeof parsed.actual === "number" ? parsed.actual : null,
+            };
+
+            if (dirtySinceLastPersistRef.current) {
+              window.setTimeout(() => {
+                setSaveStatus("saving");
+                const ok = publishWsSnapshot(undefined, "INTERNAL_RETRY");
+                if (!ok) setSaveStatus("error");
+              }, 150);
+              return;
+            }
+          }
+
+          // Se não fizer retry automático (muitas colisões), faz resync completo.
+          setSaveStatus("error");
+          try {
+            const res = await Requests.getInstrumentoByTurma(turmaId);
+            if (res.ok) {
+              const data = await res.json();
+              const raw = data?.slidesJson;
+              const versionRaw = data?.version;
+              if (typeof versionRaw === "number") {
+                setInstrumentoVersion(versionRaw);
+                versionRef.current = versionRaw;
+              }
+              if (typeof raw === "string") {
+                const parsedSlides = JSON.parse(raw);
+                if (Array.isArray(parsedSlides)) {
+                  applyingRemoteRef.current = true;
+                  suppressAutosaveUntilRef.current = Math.max(
+                    suppressAutosaveUntilRef.current,
+                    Date.now() + 1200
+                  );
+                  setSlides(parsedSlides as Slide[]);
+                  try {
+                    lastSavedSlidesJsonRef.current = JSON.stringify(parsedSlides);
+                  } catch {}
+                  dirtySinceLastPersistRef.current = false;
+                  window.setTimeout(() => {
+                    applyingRemoteRef.current = false;
+                  }, 0);
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Falha ao ressincronizar após conflito:", e);
+            setLastSaveError(
+              e instanceof Error
+                ? `Falha ao ressincronizar: ${e.message}`
+                : "Falha ao ressincronizar"
+            );
+          }
+          return;
+        }
+
+        // Outros erros: exibir como erro.
+        setSaveStatus("error");
+        setLastSaveError(`${err.code}${err.message ? `: ${err.message}` : ""}`);
+      });
+    };
+
+    client.onWebSocketClose = () => {
+      setWsConnected(false);
+      setLastSaveError("WS desconectado");
+    };
+    client.onStompError = () => {
+      setWsConnected(false);
+      setLastSaveError("Erro no STOMP/WS");
+    };
+
+    stompClientRef.current = client;
+    client.activate();
+
+    return () => {
+      setWsConnected(false);
+      try {
+        client.deactivate();
+      } catch {}
+      stompClientRef.current = null;
+    };
+  }, [turmaId, loadedFromApi]);
+
+  const publishWsSnapshot = useCallback(
+    (summary?: string, eventType?: string) => {
+      if (!turmaId) return false;
+      const client = stompClientRef.current;
+      if (!client || !client.connected) {
+        setLastSaveError("WS não conectado");
+        return false;
+      }
+
+      // Garantia de ordem: apenas um save por vez.
+      if (pendingWsSaveRef.current) {
+        wsDirtyWhileSavingRef.current = true;
+        return true;
+      }
+
+      try {
+        pendingWsSaveRef.current = true;
+        try {
+          pendingWsSavedJsonRef.current = JSON.stringify(slidesRef.current);
+        } catch {
+          pendingWsSavedJsonRef.current = null;
+        }
+        setLastSaveError(null);
+        const effectiveEventType =
+          eventType && eventType.trim() ? eventType.trim() : "SNAPSHOT_UPDATE";
+        client.publish({
+          destination: "/app/instrumentos/update",
+          body: JSON.stringify({
+            turmaId,
+            slides: slidesRef.current,
+            expectedVersion: versionRef.current,
+            clientId: clientIdRef.current,
+            eventType: effectiveEventType,
+            summary: summary || "Atualizou o instrumento",
+          }),
+        });
+        return true;
+      } catch (e) {
+        console.error("Falha ao publicar snapshot via WS:", e);
+        setLastSaveError(
+          e instanceof Error ? e.message : "Falha ao publicar snapshot via WS"
+        );
+        pendingWsSaveRef.current = false;
+        return false;
+      }
+    },
+    [turmaId]
+  );
+
   // Auto-save: se houver turmaId, salva via PUT com debounce; senão, fallback localStorage
   useEffect(() => {
     if (turmaId) {
@@ -2177,22 +3399,82 @@ export default function PublicacoesPage() {
       if (loading) {
         return;
       }
+
+      // Evita re-trigger por atualizações remotas
+      if (applyingRemoteRef.current) {
+        return;
+      }
+
+      // Evita ping-pong: logo após aplicar snapshot remoto/hidratação/resync,
+      // ignore alterações derivadas (re-render/normalização) por um curto período.
+      if (Date.now() < suppressAutosaveUntilRef.current) {
+        return;
+      }
+
+      // Se não houve mudança local desde o último persist, não agendar nada.
+      if (!dirtySinceLastPersistRef.current) {
+        return;
+      }
+
+      // Se já existe um save WS em voo, não fique re-agendando.
+      if (wsConnected && pendingWsSaveRef.current) {
+        return;
+      }
+
+      // Evita salvar quando o conteúdo não mudou.
+      let currentJson = "";
+      try {
+        currentJson = JSON.stringify(slides);
+      } catch {
+        // Se não conseguir serializar (improvável), permite tentar salvar.
+        currentJson = "";
+      }
+      if (currentJson && currentJson === lastSavedSlidesJsonRef.current) {
+        return;
+      }
+
       if (saveTimeoutRef.current) {
         window.clearTimeout(saveTimeoutRef.current);
       }
       saveTimeoutRef.current = window.setTimeout(async () => {
         try {
           setSaveStatus("saving");
-          if (shouldUsePost) {
-            await Requests.createInstrumento(turmaId, slides);
-            setShouldUsePost(false);
-          } else {
-            await Requests.saveInstrumento(turmaId, slides);
+          setLastSaveError(null);
+          // Quando WS estiver conectado, a persistência passa a ser via canal colaborativo.
+          if (wsConnected) {
+            const ok = publishWsSnapshot();
+            if (!ok) {
+              setSaveStatus("error");
+            }
+            return;
           }
+
+          const res = shouldUsePost
+            ? await Requests.createInstrumento(turmaId, slides)
+            : await Requests.saveInstrumento(turmaId, slides);
+          if (!res.ok) {
+            throw new Error(`Falha ao salvar instrumento: HTTP ${res.status}`);
+          }
+          try {
+            const dto = await res.json();
+            if (typeof dto?.version === "number") {
+              setInstrumentoVersion(dto.version);
+              versionRef.current = dto.version;
+            }
+          } catch {}
+
+          if (currentJson) {
+            lastSavedSlidesJsonRef.current = currentJson;
+          }
+
+          dirtySinceLastPersistRef.current = false;
+
+          if (shouldUsePost) setShouldUsePost(false);
           setSaveStatus("saved");
           window.setTimeout(() => setSaveStatus("idle"), 1200);
         } catch (e) {
           console.error("Erro ao salvar slides na API:", e);
+          setLastSaveError(e instanceof Error ? e.message : String(e));
           setSaveStatus("error");
         }
       }, 600);
@@ -2205,23 +3487,54 @@ export default function PublicacoesPage() {
       // Persistência local (fallback)
       savePublicationToStorage(slides);
     }
-  }, [slides, turmaId, loading, shouldUsePost]);
+  }, [
+    slides,
+    turmaId,
+    loading,
+    shouldUsePost,
+    canSaveToApi,
+    wsConnected,
+    publishWsSnapshot,
+  ]);
 
   const handleManualSave = async () => {
     if (!turmaId) return;
     if (!canSaveToApi) return;
     try {
       setSaveStatus("saving");
-      if (shouldUsePost) {
-        await Requests.createInstrumento(turmaId, slides);
-        setShouldUsePost(false);
-      } else {
-        await Requests.saveInstrumento(turmaId, slides);
+      setLastSaveError(null);
+
+      if (wsConnected) {
+        const ok = publishWsSnapshot("Salvou manualmente");
+        if (!ok) setSaveStatus("error");
+        return;
       }
+
+      const res = shouldUsePost
+        ? await Requests.createInstrumento(turmaId, slides)
+        : await Requests.saveInstrumento(turmaId, slides);
+      if (!res.ok) {
+        throw new Error(`Falha ao salvar instrumento: HTTP ${res.status}`);
+      }
+      try {
+        const dto = await res.json();
+        if (typeof dto?.version === "number") {
+          setInstrumentoVersion(dto.version);
+          versionRef.current = dto.version;
+        }
+      } catch {}
+
+      try {
+        lastSavedSlidesJsonRef.current = JSON.stringify(slides);
+      } catch {}
+      dirtySinceLastPersistRef.current = false;
+
+      if (shouldUsePost) setShouldUsePost(false);
       setSaveStatus("saved");
       window.setTimeout(() => setSaveStatus("idle"), 1200);
     } catch (e) {
       console.error("Erro ao salvar slides na API:", e);
+      setLastSaveError(e instanceof Error ? e.message : String(e));
       setSaveStatus("error");
     }
   };
@@ -2250,60 +3563,6 @@ export default function PublicacoesPage() {
       : true;
     return matchesTag && matchesInstrument;
   });
-
-  // Navegação de slides com teclado (↑/↓).
-  // Importante: NÃO deve disparar enquanto o usuário estiver digitando/selecionando texto.
-  useEffect(() => {
-    const isTypingTarget = (el: Element | null) => {
-      if (!el) return false;
-      const htmlEl = el as HTMLElement;
-      const tag = (htmlEl.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select") return true;
-      if (htmlEl.isContentEditable) return true;
-      if (htmlEl.closest('[contenteditable="true"]')) return true;
-      return false;
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      if (showColorModal || croppingImage) return;
-
-      const activeEl = document.activeElement;
-      if (isTypingTarget(activeEl)) return;
-
-      // Se houver filtro, tentamos navegar dentro do conjunto filtrado.
-      // Se o slide atual não estiver no filtrado, cai para o conjunto completo.
-      const hasFilter = Boolean(filterTag) || Boolean(filterInstrument);
-      const preferredList = hasFilter ? filteredSlides : slides;
-      const list =
-        preferredList.some((s) => s.id === currentSlideId) || !hasFilter
-          ? preferredList
-          : slides;
-
-      if (!list || list.length === 0) return;
-
-      const currentIndex = list.findIndex((s) => s.id === currentSlideId);
-      const baseIndex = currentIndex >= 0 ? currentIndex : 0;
-      const delta = e.key === "ArrowDown" ? 1 : -1;
-      const nextIndex = baseIndex + delta;
-      if (nextIndex < 0 || nextIndex >= list.length) return;
-
-      e.preventDefault();
-      handleSlideChange(list[nextIndex].id);
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [
-    currentSlideId,
-    slides,
-    filteredSlides,
-    filterTag,
-    filterInstrument,
-    showColorModal,
-    croppingImage,
-  ]);
 
   const handleSlideChange = (id: number) => {
     setCurrentSlideId(id);
@@ -2341,10 +3600,51 @@ export default function PublicacoesPage() {
     }, 0);
   };
 
+  // Quando o estado dos slides mudar (ex.: update remoto via WS), manter os controles
+  // da toolbar em sincronia com a caixa atualmente selecionada.
+  useEffect(() => {
+    if (!selectedTextBox) return;
+    const slide = slides.find((s) => s.id === selectedTextBox.slideId);
+    const box = slide?.textBoxes.find((b) => b.id === selectedTextBox.boxId);
+    if (!box) return;
+
+    const nextSize = typeof box.fontSize === "number" ? String(box.fontSize) : "";
+    const nextFamily = box.fontFamily || "";
+    const nextAlign =
+      (box.textAlign as "left" | "center" | "right" | "justify" | undefined) ||
+      "left";
+
+    setSelectedBoxFontSize(nextSize);
+    setSelectedBoxFontFamily(nextFamily);
+    setSelectedBoxAlign(nextAlign);
+  }, [slides, selectedTextBox]);
+
   const clearSelection = () => {
     setSelectedTextBox(null);
     setSelectedImage(null);
   };
+
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      // Não des-selecionar ao interagir com modais (ex.: seletor de cor, cropper).
+      if (target.closest(".modal-root")) return;
+
+      // Não des-selecionar ao clicar na toolbar superior.
+      if (target.closest(".toolbar")) return;
+
+      // Se clicou fora da área do slide/canvas, des-seleciona.
+      const clickedInsideSlides = Boolean(target.closest(".slide-canvas-container"));
+      if (!clickedInsideSlides) {
+        clearSelection();
+      }
+    };
+
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
 
   const handleImageSelection = (slideId: number, imgId: number) => {
     setSelectedImage({ slideId, imgId });
@@ -2529,82 +3829,6 @@ export default function PublicacoesPage() {
     );
   };
 
-  type LayerItem =
-    | { kind: "image"; id: number; zIndex: number; label: string }
-    | { kind: "text"; id: number; zIndex: number; label: string };
-
-  const getLayerItems = (slide: Slide | undefined): LayerItem[] => {
-    if (!slide) return [];
-    const images: LayerItem[] = (slide.images ?? []).map((img) => ({
-      kind: "image",
-      id: img.id,
-      zIndex: img.zIndex ?? 1,
-      label: `Imagem #${img.id}`,
-    }));
-    const texts: LayerItem[] = (slide.textBoxes ?? []).map((box) => ({
-      kind: "text",
-      id: box.id,
-      zIndex: box.zIndex ?? 1,
-      label: `Texto #${box.id}`,
-    }));
-
-    // Ordem base: do fundo (menor z) para o topo (maior z).
-    return [...images, ...texts]
-      .sort((a, b) => {
-        if (a.zIndex !== b.zIndex) return a.zIndex - b.zIndex;
-        // Desempate estável para evitar “pulos” na lista
-        if (a.kind !== b.kind) return a.kind === "image" ? -1 : 1;
-        return a.id - b.id;
-      })
-      .map((it, idx) => ({ ...it, zIndex: idx + 1 }));
-  };
-
-  const reorderLayer = (
-    slideId: number,
-    target: { kind: "image" | "text"; id: number },
-    action: "forward" | "backward" | "front" | "back"
-  ) => {
-    setSlides((prev) =>
-      prev.map((s) => {
-        if (s.id !== slideId) return s;
-        const normalized = getLayerItems(s);
-        const idx = normalized.findIndex(
-          (it) => it.kind === target.kind && it.id === target.id
-        );
-        if (idx < 0) return s;
-
-        const next = [...normalized];
-        if (action === "forward" && idx < next.length - 1) {
-          [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-        } else if (action === "backward" && idx > 0) {
-          [next[idx], next[idx - 1]] = [next[idx - 1], next[idx]];
-        } else if (action === "front") {
-          const [item] = next.splice(idx, 1);
-          next.push(item);
-        } else if (action === "back") {
-          const [item] = next.splice(idx, 1);
-          next.unshift(item);
-        }
-
-        // Reatribui zIndex sequencial (1..N) garantindo consistência entre imagens e textos.
-        const zMap = new Map<string, number>();
-        next.forEach((it, i) => zMap.set(`${it.kind}:${it.id}`, i + 1));
-
-        return {
-          ...s,
-          images: s.images.map((img) => ({
-            ...img,
-            zIndex: zMap.get(`image:${img.id}`) ?? (img.zIndex ?? 1),
-          })),
-          textBoxes: s.textBoxes.map((box) => ({
-            ...box,
-            zIndex: zMap.get(`text:${box.id}`) ?? (box.zIndex ?? 1),
-          })),
-        };
-      })
-    );
-  };
-
   const handleImageCropRequest = (slideId: number, imgId: number) => {
     const slide = slides.find((s) => s.id === slideId);
     const img = slide?.images.find((i) => i.id === imgId);
@@ -2632,8 +3856,8 @@ export default function PublicacoesPage() {
   };
 
   const handleImageDelete = (slideId: number, imgId: number) => {
-    setSlides(
-      slides.map((s) => {
+    setSlides((prev) =>
+      prev.map((s) => {
         if (s.id === slideId) {
           return {
             ...s,
@@ -2646,8 +3870,8 @@ export default function PublicacoesPage() {
   };
 
   const handleTextBoxDelete = (slideId: number, boxId: number) => {
-    setSlides(
-      slides.map((s) => {
+    setSlides((prev) =>
+      prev.map((s) => {
         if (s.id === slideId) {
           return {
             ...s,
@@ -2658,6 +3882,84 @@ export default function PublicacoesPage() {
       })
     );
   };
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isDeleteKey = e.key === "Delete" || e.key === "Backspace";
+      if (!isDeleteKey) return;
+
+      const active = (document.activeElement as HTMLElement | null) ?? null;
+      const tag = active?.tagName?.toLowerCase() || "";
+      const isTypingTarget =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        Boolean(active && active.isContentEditable);
+
+      // Se estiver editando texto, o Delete deve apagar caracteres, não o elemento.
+      if (isTypingTarget) return;
+
+      if (selectedImage) {
+        e.preventDefault();
+        handleImageDelete(selectedImage.slideId, selectedImage.imgId);
+        clearSelection();
+        return;
+      }
+
+      if (selectedTextBox) {
+        e.preventDefault();
+        handleTextBoxDelete(selectedTextBox.slideId, selectedTextBox.boxId);
+        clearSelection();
+      }
+    };
+
+    // Capture phase para garantir que pegamos o evento mesmo se algum componente interromper.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [
+    selectedImage,
+    selectedTextBox,
+    handleImageDelete,
+    handleTextBoxDelete,
+    clearSelection,
+  ]);
+
+  // Navegação entre slides com setas (↑/↓)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.repeat) return;
+
+      const active = (document.activeElement as HTMLElement | null) ?? null;
+      const tag = active?.tagName?.toLowerCase() || "";
+      const isTypingTarget =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        Boolean(active && active.isContentEditable);
+      if (isTypingTarget) return;
+
+      // Se houver modificadores, não interfere (ex: Alt+seta, etc.)
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+      if (!filteredSlides.length) return;
+      const currentIdx = Math.max(
+        0,
+        filteredSlides.findIndex((s) => s.id === currentSlideId)
+      );
+
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      const nextIdx = currentIdx + delta;
+      if (nextIdx < 0 || nextIdx >= filteredSlides.length) return;
+
+      e.preventDefault();
+      clearSelection();
+      handleSlideChange(filteredSlides[nextIdx].id);
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [filteredSlides, currentSlideId, handleSlideChange, clearSelection]);
 
   const handleDeleteSlide = (slideId: number) => {
     if (slides.length <= 1) return; // Não permitir deletar se houver apenas um slide
@@ -2714,82 +4016,194 @@ export default function PublicacoesPage() {
       `[data-box-id="${selectedTextBox.boxId}"]`
     ) as HTMLDivElement;
     if (textElement) {
+      const getSelectionOffsetsWithin = (
+        root: HTMLElement,
+        range: Range
+      ): { start: number; end: number } | null => {
+        try {
+          const pre = range.cloneRange();
+          pre.selectNodeContents(root);
+          pre.setEnd(range.startContainer, range.startOffset);
+          const start = pre.toString().length;
+
+          const pre2 = range.cloneRange();
+          pre2.selectNodeContents(root);
+          pre2.setEnd(range.endContainer, range.endOffset);
+          const end = pre2.toString().length;
+
+          return { start, end };
+        } catch {
+          return null;
+        }
+      };
+
+      const createRangeFromOffsets = (
+        root: HTMLElement,
+        start: number,
+        end: number
+      ): Range | null => {
+        const doc = root.ownerDocument;
+        if (!doc) return null;
+
+        const range = doc.createRange();
+        let current = 0;
+        let startNode: Text | null = null;
+        let endNode: Text | null = null;
+        let startOffset = 0;
+        let endOffset = 0;
+
+        const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode() as Text | null;
+        while (node) {
+          const len = node.nodeValue?.length ?? 0;
+
+          if (!startNode && current + len >= start) {
+            startNode = node;
+            startOffset = Math.max(0, start - current);
+          }
+
+          if (!endNode && current + len >= end) {
+            endNode = node;
+            endOffset = Math.max(0, end - current);
+            break;
+          }
+
+          current += len;
+          node = walker.nextNode() as Text | null;
+        }
+
+        if (!startNode || !endNode) return null;
+        try {
+          range.setStart(startNode, startOffset);
+          range.setEnd(endNode, endOffset);
+          return range;
+        } catch {
+          return null;
+        }
+      };
+
       // Para backColor (highlight), abrir modal
       if (command === "backColor") {
+        // Inicializa o modal com a cor atual da caixa (se houver), para o HEX já aparecer correto.
+        const getHexFromCssColor = (css: string): string | null => {
+          const v = (css || "").trim();
+          if (!v) return null;
+          // Já é HEX
+          if (v.startsWith("#")) return v.toUpperCase();
+          // rgb/rgba
+          const m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+          if (!m) return null;
+          const r = Math.max(0, Math.min(255, parseInt(m[1] || "0", 10)));
+          const g = Math.max(0, Math.min(255, parseInt(m[2] || "0", 10)));
+          const b = Math.max(0, Math.min(255, parseInt(m[3] || "0", 10)));
+          const toHex2 = (n: number) => n.toString(16).padStart(2, "0").toUpperCase();
+          return `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+        };
+
+        const stateColor =
+          slides
+            .find((s) => s.id === selectedTextBox.slideId)
+            ?.textBoxes.find((b) => b.id === selectedTextBox.boxId)?.color ??
+          "";
+
+        const cssColor = (() => {
+          try {
+            return window.getComputedStyle(textElement).color;
+          } catch {
+            return "";
+          }
+        })();
+
+        const initial =
+          getHexFromCssColor(stateColor) || getHexFromCssColor(cssColor);
+        if (initial) {
+          setColorModalInitialHex(initial);
+        }
         setShowColorModal(true);
-      } else if (command === "bold") {
-        const currentWeight = window.getComputedStyle(textElement).fontWeight;
-        const isBold = currentWeight === "700" || currentWeight === "bold";
-        textElement.style.fontWeight = isBold ? "normal" : "bold";
+      } else if (
+        command === "bold" ||
+        command === "italic" ||
+        command === "underline"
+      ) {
+        // Aplica apenas no texto selecionado dentro da caixa (não no componente inteiro).
+        const selection = window.getSelection();
+        // Preferir a seleção atual; fallback para o último range salvo.
+        const range =
+          selection && selection.rangeCount > 0
+            ? selection.getRangeAt(0)
+            : savedRangeRef.current;
 
-        // Atualizar no estado
-        setSlides(
-          slides.map((s) => {
-            if (s.id === selectedTextBox.slideId) {
-              return {
-                ...s,
-                textBoxes: s.textBoxes.map((box) =>
-                  box.id === selectedTextBox.boxId
-                    ? {
-                        ...box,
-                        fontWeight: isBold ? "normal" : "bold",
-                      }
-                    : box
-                ),
-              };
-            }
-            return s;
+        // Precisa ter uma seleção válida e não colapsada (usuário "arrastou" / selecionou).
+        if (!range || range.collapsed) {
+          return;
+        }
+
+        const containerNode = range.commonAncestorContainer;
+        const containerEl =
+          containerNode.nodeType === Node.ELEMENT_NODE
+            ? (containerNode as Element)
+            : containerNode.parentElement;
+
+        // Garantia: não formatar seleção fora desta caixa.
+        if (!containerEl || !textElement.contains(containerEl)) {
+          return;
+        }
+
+        const offsets = getSelectionOffsetsWithin(textElement, range);
+        if (!offsets || offsets.start === offsets.end) {
+          return;
+        }
+
+        try {
+          textElement.focus();
+        } catch {}
+
+        try {
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        } catch {
+          // Se não conseguir restaurar a seleção, não aplica.
+          return;
+        }
+
+        document.execCommand(command);
+
+        // Persistir o HTML resultante no estado.
+        const html = textElement.innerHTML;
+        setSlides((prev) =>
+          prev.map((s) => {
+            if (s.id !== selectedTextBox.slideId) return s;
+            return {
+              ...s,
+              textBoxes: s.textBoxes.map((box) =>
+                box.id === selectedTextBox.boxId ? { ...box, content: html } : box
+              ),
+            };
           })
         );
-      } else if (command === "italic") {
-        const currentStyle = window.getComputedStyle(textElement).fontStyle;
-        const isItalic = currentStyle === "italic";
-        textElement.style.fontStyle = isItalic ? "normal" : "italic";
 
-        // Atualizar no estado
-        setSlides(
-          slides.map((s) => {
-            if (s.id === selectedTextBox.slideId) {
-              return {
-                ...s,
-                textBoxes: s.textBoxes.map((box) =>
-                  box.id === selectedTextBox.boxId
-                    ? {
-                        ...box,
-                        fontStyle: isItalic ? "normal" : "italic",
-                      }
-                    : box
-                ),
-              };
-            }
-            return s;
-          })
-        );
-      } else if (command === "underline") {
-        const currentDecoration =
-          window.getComputedStyle(textElement).textDecoration;
-        const isUnderlined = currentDecoration.includes("underline");
-        textElement.style.textDecoration = isUnderlined ? "none" : "underline";
+        // Mantém a mesma seleção após aplicar o comando, para permitir clicar novamente
+        // e "desaplicar" sem precisar selecionar de novo.
+        window.setTimeout(() => {
+          try {
+            const selector = `[data-textbox-id="${selectedTextBox.slideId}__${selectedTextBox.boxId}"]`;
+            const latestEl =
+              (document.querySelector(selector) as HTMLDivElement | null) ||
+              textElement;
 
-        // Atualizar no estado
-        setSlides(
-          slides.map((s) => {
-            if (s.id === selectedTextBox.slideId) {
-              return {
-                ...s,
-                textBoxes: s.textBoxes.map((box) =>
-                  box.id === selectedTextBox.boxId
-                    ? {
-                        ...box,
-                        textDecoration: isUnderlined ? "none" : "underline",
-                      }
-                    : box
-                ),
-              };
-            }
-            return s;
-          })
-        );
+            const nextRange = createRangeFromOffsets(
+              latestEl,
+              offsets.start,
+              offsets.end
+            );
+            if (!nextRange) return;
+            const sel = window.getSelection();
+            if (!sel) return;
+            sel.removeAllRanges();
+            sel.addRange(nextRange);
+            savedRangeRef.current = nextRange;
+          } catch {}
+        }, 0);
       }
 
       // Dispara o evento de input para recalcular altura
@@ -2843,6 +4257,123 @@ export default function PublicacoesPage() {
     setShowColorModal(false);
   };
 
+  type DepthStackItem =
+    | {
+        kind: "image";
+        id: number;
+        z: number;
+        label: string;
+        meta?: string;
+        locked: boolean;
+      }
+    | {
+        kind: "text";
+        id: number;
+        z: number;
+        label: string;
+        meta?: string;
+        locked: boolean;
+      };
+
+  const getCurrentSlideForDepth = () =>
+    slides.find((s) => s.id === currentSlideId) || null;
+
+  const getDepthStack = (): DepthStackItem[] => {
+    const slide = getCurrentSlideForDepth();
+    if (!slide) return [];
+
+    const strip = (html: string) => {
+      try {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = html;
+        return (tmp.textContent || tmp.innerText || "").trim();
+      } catch {
+        return (html || "").replace(/<[^>]*>/g, "").trim();
+      }
+    };
+
+    const items: DepthStackItem[] = [
+      ...slide.images.map((i) => ({
+        kind: "image" as const,
+        id: i.id,
+        z: i.zIndex ?? 1,
+        label: "Imagem",
+        meta: `${i.width}×${i.height}px`,
+        locked: Boolean(i.locked),
+      })),
+      ...slide.textBoxes.map((b) => {
+        const text = strip(b.content);
+        const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
+        return {
+          kind: "text" as const,
+          id: b.id,
+          z: b.zIndex ?? 1,
+          label: short ? `Texto: ${short}` : "Texto",
+          locked: Boolean(b.locked),
+        };
+      }),
+    ];
+
+    // Ordena por z (menor atrás), com desempate estável.
+    items.sort((a, b) => {
+      const dz = (a.z ?? 0) - (b.z ?? 0);
+      if (dz !== 0) return dz;
+      if (a.kind !== b.kind) return a.kind === "image" ? -1 : 1;
+      return a.id - b.id;
+    });
+    // A lista exibida será do maior z -> menor z.
+    return items.reverse();
+  };
+
+  const applyDepthOrder = (orderedTopToBottom: DepthStackItem[]) => {
+    const n = orderedTopToBottom.length;
+    if (n === 0) return;
+    const nextZByKey = new Map<string, number>();
+    orderedTopToBottom.forEach((it, idx) => {
+      // topo = maior z
+      nextZByKey.set(`${it.kind}:${it.id}`, n - idx);
+    });
+
+    setSlides((prev) =>
+      prev.map((s) => {
+        if (s.id !== currentSlideId) return s;
+        return {
+          ...s,
+          images: s.images.map((img) => {
+            const z = nextZByKey.get(`image:${img.id}`);
+            return z === undefined ? img : { ...img, zIndex: z };
+          }),
+          textBoxes: s.textBoxes.map((box) => {
+            const z = nextZByKey.get(`text:${box.id}`);
+            return z === undefined ? box : { ...box, zIndex: z };
+          }),
+        };
+      })
+    );
+  };
+
+  const toggleDepthLock = (it: DepthStackItem) => {
+    setSlides((prev) =>
+      prev.map((s) => {
+        if (s.id !== currentSlideId) return s;
+        if (it.kind === "image") {
+          return {
+            ...s,
+            images: s.images.map((img) =>
+              img.id === it.id ? { ...img, locked: !Boolean(img.locked) } : img
+            ),
+          };
+        }
+        return {
+          ...s,
+          textBoxes: s.textBoxes.map((box) =>
+            box.id === it.id ? { ...box, locked: !Boolean(box.locked) } : box
+          ),
+        };
+      })
+    );
+  };
+
   const applyTextBoxStyle = (
     property: "fontFamily" | "fontSize",
     value: string
@@ -2856,7 +4387,8 @@ export default function PublicacoesPage() {
       if (property === "fontSize") {
         const numValue = parseInt(value);
         if (!isNaN(numValue)) {
-          textElement.style.fontSize = numValue + "px";
+          const clamped = Math.max(6, Math.min(120, numValue));
+          textElement.style.fontSize = clamped + "px";
 
           // Atualizar no estado
           setSlides(
@@ -2868,7 +4400,7 @@ export default function PublicacoesPage() {
                     box.id === selectedTextBox.boxId
                       ? {
                           ...box,
-                          fontSize: numValue,
+                          fontSize: clamped,
                         }
                       : box
                   ),
@@ -3006,12 +4538,37 @@ export default function PublicacoesPage() {
           imgSrc = dataUrl;
         }
 
+        const measureImage = async (src: string) => {
+          return await new Promise<{ w: number; h: number }>((resolve) => {
+            const probe = new Image();
+            probe.onload = () => {
+              const w = probe.naturalWidth || probe.width || 0;
+              const h = probe.naturalHeight || probe.height || 0;
+              resolve({ w: w || 200, h: h || 200 });
+            };
+            probe.onerror = () => resolve({ w: 200, h: 200 });
+            probe.src = src;
+          });
+        };
+
+        // Definir tamanho inicial preservando proporção (evita "quadrado"/stretch).
+        const natural = await measureImage(imgSrc);
+        const maxInitialW = 320;
+        const maxInitialH = 240;
+        const scale = Math.min(
+          1,
+          maxInitialW / Math.max(1, natural.w),
+          maxInitialH / Math.max(1, natural.h)
+        );
+        const initialW = Math.max(80, Math.round(natural.w * scale));
+        const initialH = Math.max(80, Math.round(natural.h * scale));
+
         const newImage: SlideImage = {
           id: Date.now(),
           x: 50,
           y: 50,
-          width: 200,
-          height: 200,
+          width: initialW,
+          height: initialH,
           src: imgSrc,
           zIndex: nextZ,
         };
@@ -3100,7 +4657,7 @@ export default function PublicacoesPage() {
               border: "1px solid #ccc",
             }}
           >
-            <option value="">Todos Instrumentos</option>
+            <option value="">Filtrar por instrumento</option>
             <option value="Capa">Capa</option>
             <option value="Ficha técnica">Ficha técnica</option>
             <option value="Informações sobre a escola">
@@ -3190,6 +4747,8 @@ export default function PublicacoesPage() {
                   ? " save-status--saved"
                   : saveStatus === "error"
                   ? " save-status--error"
+                  : saveStatus === "saving"
+                  ? " save-status--saving"
                   : "")
               }
             >
@@ -3201,7 +4760,42 @@ export default function PublicacoesPage() {
                 ? "Salvando..."
                 : ""}
             </span>
-          </div>
+
+            {saveStatus === "error" && lastSaveError ? (
+              <div
+                style={{
+                  maxWidth: 420,
+                  fontSize: 12,
+                  color: "#b00020",
+                  marginTop: 4,
+                  lineHeight: 1.25,
+                }}
+              >
+                {lastSaveError}
+              </div>
+            ) : null}
+
+          </div><button
+            type="button"
+            onClick={addTextBox}
+            className="toolbar-icon-btn"
+            title="Adicionar caixa de texto"
+          >
+            <span className="toolbar-icon" aria-hidden="true">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 -960 960 960"
+                width="18"
+                height="18"
+                className="toolbar-icon-svg"
+              >
+                <path
+                  fill="currentColor"
+                  d="m40-200 210-560h100l210 560h-96l-51-143H187l-51 143H40Zm176-224h168l-82-232h-4l-82 232Zm504 104v-120H600v-80h120v-120h80v120h120v80H800v120h-80Z"
+                />
+              </svg>
+            </span>
+          </button>
           <select
             disabled={selectedImage !== null}
             value={selectedBoxFontFamily}
@@ -3250,7 +4844,7 @@ export default function PublicacoesPage() {
             onBlur={(e) => {
               const value = parseInt(e.target.value);
               if (!Number.isNaN(value)) {
-                const validValue = Math.max(6, Math.min(60, value));
+                const validValue = Math.max(6, Math.min(120, value));
                 setSelectedBoxFontSize(validValue.toString());
                 if (selectedTextBox) {
                   applyTextBoxStyle("fontSize", validValue.toString());
@@ -3295,38 +4889,131 @@ export default function PublicacoesPage() {
             🎨
           </button>
 
-          {/* Select de Alinhamento de Texto */}
-          <select
-            disabled={selectedImage !== null}
-            value={selectedBoxAlign}
-            onChange={(e) => {
-              const align = e.target.value as
-                | "left"
-                | "center"
-                | "right"
-                | "justify";
-              setSelectedBoxAlign(align);
-              applyTextAlign(align);
-            }}
+          {/* Alinhamento de Texto (ícones) */}
+          <div
+            className="align-toggle"
+            role="group"
+            aria-label="Alinhamento de texto"
             title="Alinhamento de Texto"
-            style={{
-              padding: "8px 12px",
-              borderRadius: "4px",
-              border: "1px solid #ccc",
-              backgroundColor: "#ffffff",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
           >
-            <option value="left">Esquerda</option>
-            <option value="center">Centro</option>
-            <option value="right">Direita</option>
-            <option value="justify">Justificado</option>
-          </select>
+            <button
+              type="button"
+              className={
+                "align-btn" +
+                (selectedBoxAlign === "left" ? " align-btn--active" : "")
+              }
+              disabled={selectedImage !== null}
+              onClick={() => {
+                const align = "left" as const;
+                setSelectedBoxAlign(align);
+                applyTextAlign(align);
+              }}
+              aria-label="Alinhar à esquerda"
+              title="Esquerda"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 -960 960 960"
+                width="20"
+                height="20"
+                className="align-icon"
+              >
+                <path
+                  fill="currentColor"
+                  d="M120-120v-80h720v80H120Zm0-160v-80h480v80H120Zm0-160v-80h720v80H120Zm0-160v-80h480v80H120Zm0-160v-80h720v80H120Z"
+                />
+              </svg>
+            </button>
 
-          <button onClick={addTextBox}>Caixa de Texto</button>
+            <button
+              type="button"
+              className={
+                "align-btn" +
+                (selectedBoxAlign === "center" ? " align-btn--active" : "")
+              }
+              disabled={selectedImage !== null}
+              onClick={() => {
+                const align = "center" as const;
+                setSelectedBoxAlign(align);
+                applyTextAlign(align);
+              }}
+              aria-label="Centralizar"
+              title="Centro"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 -960 960 960"
+                width="20"
+                height="20"
+                className="align-icon"
+              >
+                <path
+                  fill="currentColor"
+                  d="M120-120v-80h720v80H120Zm160-160v-80h400v80H280ZM120-440v-80h720v80H120Zm160-160v-80h400v80H280ZM120-760v-80h720v80H120Z"
+                />
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              className={
+                "align-btn" +
+                (selectedBoxAlign === "right" ? " align-btn--active" : "")
+              }
+              disabled={selectedImage !== null}
+              onClick={() => {
+                const align = "right" as const;
+                setSelectedBoxAlign(align);
+                applyTextAlign(align);
+              }}
+              aria-label="Alinhar à direita"
+              title="Direita"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 -960 960 960"
+                width="20"
+                height="20"
+                className="align-icon"
+              >
+                <path
+                  fill="currentColor"
+                  d="M120-760v-80h720v80H120Zm240 160v-80h480v80H360ZM120-440v-80h720v80H120Zm240 160v-80h480v80H360ZM120-120v-80h720v80H120Z"
+                />
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              className={
+                "align-btn" +
+                (selectedBoxAlign === "justify" ? " align-btn--active" : "")
+              }
+              disabled={selectedImage !== null}
+              onClick={() => {
+                const align = "justify" as const;
+                setSelectedBoxAlign(align);
+                applyTextAlign(align);
+              }}
+              aria-label="Justificar"
+              title="Justificado"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 -960 960 960"
+                width="20"
+                height="20"
+                className="align-icon"
+              >
+                <path
+                  fill="currentColor"
+                  d="M120-120v-80h720v80H120Zm0-160v-80h720v80H120Zm0-160v-80h720v80H120Zm0-160v-80h720v80H120Zm0-160v-80h720v80H120Z"
+                />
+              </svg>
+            </button>
+          </div>
           <label className="image-upload-btn">
-            📷 Imagem
+            Upload
             <input
               type="file"
               accept="image/*"
@@ -3497,143 +5184,217 @@ export default function PublicacoesPage() {
             placeholder="Adicione comentários ou tags..."
             className="tags-input"
           />
-
-          <div className="layers-panel">
-            <div className="layers-panel__header">Camadas</div>
-
-            <div className="layers-list">
-              {(() => {
-                const itemsBottomToTop = getLayerItems(currentSlide);
-                const itemsTopToBottom = [...itemsBottomToTop].reverse();
-                if (itemsTopToBottom.length === 0) {
-                  return <div className="layers-empty">Nenhum elemento no slide.</div>;
-                }
-
-                return itemsTopToBottom.map((it) => {
-                  const baseIndex = itemsBottomToTop.findIndex(
-                    (x) => x.kind === it.kind && x.id === it.id
-                  );
-                  const canForward =
-                    baseIndex >= 0 && baseIndex < itemsBottomToTop.length - 1;
-                  const canBackward = baseIndex > 0;
-                  const isSelected =
-                    (it.kind === "image" &&
-                      selectedImage?.slideId === currentSlideId &&
-                      selectedImage?.imgId === it.id) ||
-                    (it.kind === "text" &&
-                      selectedTextBox?.slideId === currentSlideId &&
-                      selectedTextBox?.boxId === it.id);
-
-                  return (
-                    <div
-                      key={`${it.kind}-${it.id}`}
-                      className={
-                        "layers-item" + (isSelected ? " layers-item--selected" : "")
-                      }
-                      onClick={() => {
-                        if (it.kind === "image") {
-                          handleImageSelection(currentSlideId, it.id);
-                        } else {
-                          handleTextBoxSelection(currentSlideId, it.id);
-                        }
-                      }}
-                      title={it.label}
-                    >
-                      <span className="layers-item__meta">{it.zIndex}</span>
-                      <span className="layers-item__label">
-                        {it.kind === "image" ? "🖼️" : "🔤"} {it.label}
-                      </span>
-
-                      <button
-                        type="button"
-                        className="layers-btn layers-btn--icon"
-                        disabled={!canForward}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          reorderLayer(
-                            currentSlideId,
-                            { kind: it.kind, id: it.id },
-                            "forward"
-                          );
-                        }}
-                        title="Trazer para frente"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        type="button"
-                        className="layers-btn layers-btn--icon"
-                        disabled={!canBackward}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          reorderLayer(
-                            currentSlideId,
-                            { kind: it.kind, id: it.id },
-                            "backward"
-                          );
-                        }}
-                        title="Enviar para trás"
-                      >
-                        ▼
-                      </button>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-
-            <div className="layers-actions">
-              <button
-                type="button"
-                className="layers-btn"
-                disabled={!selectedImage && !selectedTextBox}
-                onClick={() => {
-                  if (selectedImage?.slideId === currentSlideId) {
-                    reorderLayer(
-                      currentSlideId,
-                      { kind: "image", id: selectedImage.imgId },
-                      "front"
-                    );
-                  } else if (selectedTextBox?.slideId === currentSlideId) {
-                    reorderLayer(
-                      currentSlideId,
-                      { kind: "text", id: selectedTextBox.boxId },
-                      "front"
-                    );
-                  }
-                }}
-                title="Trazer ao topo"
-              >
-                Topo
-              </button>
-              <button
-                type="button"
-                className="layers-btn"
-                disabled={!selectedImage && !selectedTextBox}
-                onClick={() => {
-                  if (selectedImage?.slideId === currentSlideId) {
-                    reorderLayer(
-                      currentSlideId,
-                      { kind: "image", id: selectedImage.imgId },
-                      "back"
-                    );
-                  } else if (selectedTextBox?.slideId === currentSlideId) {
-                    reorderLayer(
-                      currentSlideId,
-                      { kind: "text", id: selectedTextBox.boxId },
-                      "back"
-                    );
-                  }
-                }}
-                title="Enviar ao fundo"
-              >
-                Fundo
-              </button>
-            </div>
-          </div>
         </div>
+
+        <div className="options-group">
+          <h2>Profundidade</h2>
+          {(() => {
+            const stack = getDepthStack();
+            const hasItems = stack.length > 0;
+
+            const isSelected = (it: { kind: string; id: number }) => {
+              if (it.kind === "image") {
+                return selectedImage?.imgId === it.id;
+              }
+              return selectedTextBox?.boxId === it.id;
+            };
+
+            const move = (fromIndex: number, delta: number) => {
+              const next = [...stack];
+              const toIndex = fromIndex + delta;
+              if (toIndex < 0 || toIndex >= next.length) return;
+              const tmp = next[fromIndex];
+              next[fromIndex] = next[toIndex];
+              next[toIndex] = tmp;
+              applyDepthOrder(next);
+            };
+
+            return !hasItems ? (
+              <div style={{ fontSize: 12, color: "#6B7280" }}>
+                Nenhum elemento neste slide.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 8 }}>
+                  
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    maxHeight: 260,
+                    overflow: "auto",
+                    paddingRight: 4,
+                  }}
+                >
+                  {stack.map((it, idx) => {
+                    const active = isSelected(it);
+                    return (
+                      <div
+                        key={`${it.kind}:${it.id}`}
+                        onClick={() => {
+                          if (it.kind === "image") {
+                            handleImageSelection(currentSlideId, it.id);
+                          } else {
+                            handleTextBoxSelection(currentSlideId, it.id);
+                          }
+                        }}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr auto",
+                          gap: 8,
+                          alignItems: "center",
+                          padding: "8px 10px",
+                          borderRadius: 10,
+                          border: active
+                            ? "2px solid rgba(248,137,74,0.9)"
+                            : "1px solid rgba(0,0,0,0.12)",
+                          background: active ? "rgba(248,137,74,0.10)" : "#fff",
+                          cursor: "pointer",
+                        }}
+                        title={`z-index: ${it.z}`}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 700,
+                              color: "#111827",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {it.kind === "image" ? "🖼️ " : "✏️ "}
+                            {it.label}
+                          </div>
+                          {it.meta ? (
+                            <div style={{ fontSize: 12, color: "#6B7280" }}>
+                              {it.meta}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleDepthLock(it);
+                            }}
+                            title={it.locked ? "Destravar" : "Travar"}
+                            style={{
+                              width: 34,
+                              height: 30,
+                              borderRadius: 8,
+                              border: "1px solid rgba(0,0,0,0.15)",
+                              background: it.locked
+                                ? "rgba(17,24,39,0.08)"
+                                : "#fff",
+                              cursor: "pointer",
+                              fontWeight: 900,
+                            }}
+                          >
+                            {it.locked ? "🔒" : "🔓"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              move(idx, -1);
+                            }}
+                            disabled={idx === 0}
+                            title="Mover para cima (mais à frente)"
+                            style={{
+                              width: 34,
+                              height: 30,
+                              borderRadius: 8,
+                              border: "1px solid rgba(0,0,0,0.15)",
+                              background: "#fff",
+                              cursor: idx === 0 ? "not-allowed" : "pointer",
+                              opacity: idx === 0 ? 0.5 : 1,
+                              fontWeight: 900,
+                            }}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              move(idx, +1);
+                            }}
+                            disabled={idx === stack.length - 1}
+                            title="Mover para baixo (mais atrás)"
+                            style={{
+                              width: 34,
+                              height: 30,
+                              borderRadius: 8,
+                              border: "1px solid rgba(0,0,0,0.15)",
+                              background: "#fff",
+                              cursor:
+                                idx === stack.length - 1
+                                  ? "not-allowed"
+                                  : "pointer",
+                              opacity: idx === stack.length - 1 ? 0.5 : 1,
+                              fontWeight: 900,
+                            }}
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+
+        {turmaId && (
+          <details className="change-log-panel">
+            <summary>
+              Log de alterações
+              <span
+                className={
+                  "collab-indicator" +
+                  (wsConnected
+                    ? " collab-indicator--on"
+                    : " collab-indicator--off")
+                }
+                title={
+                  wsConnected
+                    ? "Colaboração online (tempo real)"
+                    : "Colaboração offline (fallback REST)"
+                }
+              >
+                {wsConnected ? "online" : "offline"}
+              </span>
+            </summary>
+            
+            <div className="change-log-list">
+              {visibleChangeLogs.length === 0 ? (
+                <div className="change-log-empty">Nenhuma alteração recente</div>
+              ) : (
+                visibleChangeLogs.map((e) => (
+                  <div key={e.id} className="change-log-item">
+                    <div className="change-log-item__summary">{e.summary}</div>
+                    <div className="change-log-item__meta">
+                      <span className="change-log-item__actor">{e.actor}</span>
+                      <span className="change-log-item__sep">·</span>
+                      <span className="change-log-item__at">
+                        {formatAt(e.createdAt)}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </details>
+        )}
 
   
       </aside>
@@ -3647,129 +5408,11 @@ export default function PublicacoesPage() {
       )}
 
       {showColorModal && (
-        <div
-          className="modal-root"
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10000000,
-          }}
-          onClick={() => setShowColorModal(false)}
-        >
-          <div
-            style={{
-              backgroundColor: "white",
-              padding: "20px",
-              borderRadius: "8px",
-              minWidth: "300px",
-              boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3>Selecionar Cor</h3>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(6, 1fr)",
-                gap: "10px",
-                marginBottom: "20px",
-              }}
-            >
-              {[
-                "#FFFF00",
-                "#FF0000",
-                "#00FF00",
-                "#0000FF",
-                "#FFFFFF",
-                "#000000",
-                "#FFA500",
-                "#FF1493",
-                "#00CED1",
-                "#FFB6C1",
-                "#90EE90",
-                "#87CEEB",
-              ].map((color) => (
-                <button
-                  key={color}
-                  onClick={() => {
-                    setSelectedColor(color);
-                    applyColorHighlight(color);
-                  }}
-                  style={{
-                    width: "100%",
-                    aspectRatio: "1",
-                    backgroundColor: color,
-                    border:
-                      selectedColor === color
-                        ? "3px solid #333"
-                        : "1px solid #ccc",
-                    borderRadius: "4px",
-                    cursor: "pointer",
-                  }}
-                  title={color}
-                />
-              ))}
-            </div>
-
-            <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", marginBottom: "8px" }}>
-                Código HEX:
-              </label>
-              <input
-                type="text"
-                value={selectedColor}
-                onChange={(e) => setSelectedColor(e.target.value)}
-                placeholder="#FFFFFF"
-                style={{
-                  width: "100%",
-                  padding: "8px",
-                  borderRadius: "4px",
-                  border: "1px solid #ccc",
-                  boxSizing: "border-box",
-                }}
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: "10px" }}>
-              <button
-                onClick={() => applyColorHighlight(selectedColor)}
-                style={{
-                  flex: 1,
-                  padding: "10px",
-                  backgroundColor: "#f8894a",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                }}
-              >
-                Aplicar
-              </button>
-              <button
-                onClick={() => setShowColorModal(false)}
-                style={{
-                  flex: 1,
-                  padding: "10px",
-                  backgroundColor: "#e9665c",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                }}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
+        <ColorHighlightModal
+          initialColor={colorModalInitialHex}
+          onClose={() => setShowColorModal(false)}
+          onApply={(hex) => applyColorHighlight(hex)}
+        />
       )}
     </div>
   ) : null;

@@ -57,9 +57,7 @@
   transform: scale(1); /* Hack para renderizar conteúdo */
 }
 
-.thumbnail-preview > div {
-  /* inner scaling handled in component */
-}
+
 
 .slide-number {
   font-size: 0.9rem;
@@ -109,6 +107,90 @@
   background: #d97c50;
 }
 
+/* --- Painel: Log de alterações (colaboração) --- */
+.change-log-panel {
+  border-top: 1px solid #ccc;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.change-log-panel > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 700;
+  color: #333;
+}
+
+.collab-indicator {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #ccc;
+  background: #f3f3f3;
+  color: #333;
+}
+
+.collab-indicator--on {
+  background: #e8f5e9;
+  border-color: #c8e6c9;
+  color: #2e7d32;
+}
+
+.collab-indicator--off {
+  background: #fff3e0;
+  border-color: #ffe0b2;
+  color: #ef6c00;
+}
+
+.change-log-meta {
+  font-size: 12px;
+  color: #666;
+  margin-top: 0.5rem;
+}
+
+.change-log-list {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.change-log-empty {
+  font-size: 12px;
+  color: #666;
+}
+
+.change-log-item {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.change-log-item__summary {
+  font-size: 13px;
+  color: #222;
+}
+
+.change-log-item__meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #666;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.change-log-item__sep {
+  opacity: 0.8;
+}
+
 /* --- Área Central (Editor) --- */
 .editor-main {
   flex: 1;
@@ -131,7 +213,7 @@
 .save-block {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   /* Reserva o espaço do botão + status para não deslocar os outros controles */
   width: 19rem; /* 110 (botão) + 130 (status) + 8 (gap) */
   flex: 0 0 19rem;
@@ -141,6 +223,20 @@
   width: 110px;
   white-space: nowrap;
   overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  border: 1px solid #1a73e8;
+  background: linear-gradient(180deg, #ffffff 0%, #f3f6fb 100%);
+  color: #111827;
+  box-shadow: 0 2px 10px rgba(17, 24, 39, 0.08);
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
 .save-button__label {
@@ -155,22 +251,77 @@
   font-size: 12px;
 }
 
+@keyframes saveSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.save-button--saving::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(26, 115, 232, 0.35);
+  border-top-color: #1a73e8;
+  animation: saveSpin 800ms linear infinite;
+}
+
+.save-button--saving {
+  background: linear-gradient(180deg, #eef6ff 0%, #e3f2fd 100%);
+}
+
+.save-button:disabled {
+  cursor: not-allowed;
+  border-color: #cfd8dc;
+  background: linear-gradient(180deg, #eceff1 0%, #dde3e6 100%);
+  color: #374151;
+  box-shadow: none;
+  opacity: 0.75;
+}
+
 .save-status {
   width: 7rem;
   flex: 0 0 7rem;
-  font-size: 15px;
+  font-size: 13px;
+  font-weight: 700;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
-  color: #130b0b;
+  color: #374151;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.save-status:empty {
+  opacity: 0;
 }
 
 .save-status--saved {
   color: #2e7d32;
+  border-color: #a5d6a7;
+  background: #e8f5e9;
 }
 
 .save-status--error {
   color: #c62828;
+  border-color: #ef9a9a;
+  background: #ffebee;
+}
+
+.save-status--saving {
+  color: #1565c0;
+  border-color: #90caf9;
+  background: #e3f2fd;
 }
 
 .toolbar select,
@@ -182,17 +333,113 @@
   border-radius: 4px;
   background: #f9f9f9;
   cursor: pointer;
-  font-size: 14px;
-  height: 32px;
+  font-size: 1.4rem;
+  height: 3.2rem;
 }
 
+
+
 .toolbar input[type="number"] {
-  width: 100px;
+  width: 7rem;
 }
 
 .toolbar button:hover,
 .image-upload-btn:hover {
   background: #eee;
+}
+
+/* Botões com ícone (ex.: Caixa de Texto) */
+.toolbar .toolbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar .toolbar-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.toolbar .toolbar-icon-svg {
+  display: block;
+}
+
+.toolbar .toolbar-icon-btn__label {
+  white-space: nowrap;
+}
+
+/* Alinhamento (ícones) */
+.toolbar .align-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 3.2rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.toolbar .align-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.6rem;
+  height: 3.2rem;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #ccc;
+  background: #f9f9f9;
+  color: #374151;
+}
+
+.toolbar .align-btn:last-child {
+  border-right: 0;
+}
+
+.toolbar .align-btn:hover:not(:disabled) {
+  background: #eee;
+}
+
+.toolbar .align-btn--active {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.toolbar .align-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.toolbar .align-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(26, 115, 232, 0.5);
+}
+
+.toolbar .align-icon {
+  display: block;
+}
+
+/* Overrides específicos do botão de salvar (evita ser sobrescrito pelas regras genéricas da toolbar) */
+.toolbar .save-button:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f8fbff 0%, #eaf2ff 100%);
+  box-shadow: 0 6px 18px rgba(26, 115, 232, 0.18);
+  transform: translateY(-1px);
+}
+
+.toolbar .save-button:active:not(:disabled) {
+  transform: translateY(0px);
+  background: linear-gradient(180deg, #eef6ff 0%, #dbeafe 100%);
+}
+
+.toolbar .save-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.25), 0 2px 10px rgba(26, 115, 232, 0.2);
 }
 
 .image-upload-btn {
@@ -256,6 +503,9 @@
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .options-group h3 {

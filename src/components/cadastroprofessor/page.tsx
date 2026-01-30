@@ -33,6 +33,7 @@ export default function CadastroProfessor({
   onSubmit,
   className,
 }: CadastroProfessorProps) {
+  const isEdit = initialValues != null;
   /** Estado controlado do formulário. */
   const [values, setValues] = useState<CadastroProfessorValues>({
     nome: initialValues?.nome ?? "",
@@ -59,7 +60,9 @@ export default function CadastroProfessor({
   return (
     <div className={styles.pageContainer + (className ? ` ${className}` : "")}>
       <form className={styles.cadastroForm} onSubmit={handleSubmit}>
-        <h1 className={styles.title}>Cadastro Professor</h1>
+        <h1 className={styles.title}>
+          {isEdit ? "Atualizar dados do professor" : "Cadastrar professor"}
+        </h1>
 
         <div className={styles.formColumns}>
           <div className={styles.column}>
@@ -117,7 +120,7 @@ export default function CadastroProfessor({
         </div>
 
         <button type="submit" className={styles.btnCadastrar}>
-          Cadastrar
+          {isEdit ? "Atualizar" : "Cadastrar"}
         </button>
       </form>
     </div>
