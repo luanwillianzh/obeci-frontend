@@ -192,7 +192,7 @@ export default function AdministrarAcessos() {
               />
             </div>
 
-            <div className="foto-perfil-container">
+           {/*  <div className="foto-perfil-container">
               <div className="foto-placeholder">
                 {foto ? (
                   <img
@@ -219,7 +219,7 @@ export default function AdministrarAcessos() {
                 onChange={handleFileUpload}
                 className="input-upload-hidden"
               />
-            </div>
+            </div> */}
 
             <button className="save-button" onClick={handleAtualizarDados}>
               Salvar Dados

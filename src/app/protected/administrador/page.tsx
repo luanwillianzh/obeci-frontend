@@ -25,7 +25,7 @@
  * - O backend é a fonte de verdade; após create/update/delete, a tela recarrega listas.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PenTool, User, Search, Trash2 } from "lucide-react";
 import "./administrar_dados.css";
 import Modal from "../../../components/ui/Modal";
@@ -86,17 +86,19 @@ const Card = ({
 const ProfileCard = ({
   nome,
   subtitle,
+  avatar,
   onEdit,
   onDelete,
 }: {
   nome: string;
   subtitle?: string;
+  avatar?: ReactNode;
   onEdit: () => void;
   onDelete: () => void;
 }) => (
   <div className="profile-card">
     <div className="profile-info-group">
-      <User size={40} color="#6d6d6d" className="profile-icon" />
+      {avatar ?? <User size={40} color="#6d6d6d" className="profile-icon" />}
       <div className="profile-text">
         <span className="profile-name">{nome}</span>
         {subtitle ? <span className="profile-subtitle">{subtitle}</span> : null}
@@ -292,7 +294,12 @@ const TurmasView = ({
         {filtered.map((turma) => (
           <ProfileCard
             key={turma.id}
-            nome={`Turma #${turma.id} - ${turma.nome}`}
+            nome={`${turma.nome}`}
+            avatar={
+              <div className="class-card__avatar" aria-hidden="true">
+                📓
+              </div>
+            }
             subtitle={`Turno: ${turma.turno} | Professores: ${
               (turma.professorIds || [])
                 .map((pid) => professorNomeById.get(pid) || `#${pid}`)
@@ -448,6 +455,7 @@ export default function AdministrarDados() {
       const res = await Requests.listTurmas();
       if (res.ok) {
         const data = (await res.json()) as Turma[];
+      
         setTurmas(data || []);
       }
     } catch {}

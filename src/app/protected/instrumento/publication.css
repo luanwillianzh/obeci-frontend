@@ -494,6 +494,12 @@
   box-shadow: 0 0 0 4px rgba(248, 137, 74, 0.5), 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
+/* Evita drag nativo dentro do canvas (reforço; o bloqueio principal é via onDragStartCapture) */
+.slide-canvas img,
+.slide-canvas a {
+  -webkit-user-drag: none;
+}
+
 /* --- Sidebar Direita (Opções) --- */
 .options-sidebar {
   width: 300px;
@@ -798,4 +804,40 @@
 .modal-root img {
   -webkit-user-drag: none;
   user-select: none;
+}
+
+/* --- Loading overlay para imagens do slide --- */
+.image-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(245, 245, 245, 0.72);
+  pointer-events: none; /* não atrapalha drag/resize do editor */
+}
+
+.image-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid rgba(0, 0, 0, 0.18);
+  border-top-color: #f8894a;
+  animation: imageSpin 0.85s linear infinite;
+}
+
+@keyframes imageSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.image-error {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b91c1c;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(185, 28, 28, 0.25);
+  padding: 6px 10px;
+  border-radius: 999px;
 }

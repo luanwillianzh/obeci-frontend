@@ -788,6 +788,9 @@ const DraggableResizableImage = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">(
+    "loading"
+  );
   const [widthInput, setWidthInput] = useState<string>(String(img.width));
   const [heightInput, setHeightInput] = useState<string>(String(img.height));
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -814,6 +817,12 @@ const DraggableResizableImage = ({
     setWidthInput(String(img.width));
     setHeightInput(String(img.height));
   }, [img.width, img.height]);
+
+  useEffect(() => {
+    // Quando a fonte muda (abrindo instrumento / mudando slide), mostrar loading.
+    // Não depende de `img` inteiro para não resetar o loading em cada move/resize.
+    setLoadState("loading");
+  }, [img.src]);
 
   const clampResizeToSlide = (w: number, h: number) => {
     const minSize = 50;
@@ -1173,6 +1182,16 @@ const DraggableResizableImage = ({
           {(img.rotation ?? 0).toFixed(0)}°
         </div>
       )}
+
+      {loadState !== "loaded" && (
+        <div className="image-loading-overlay" aria-hidden="true">
+          {loadState === "loading" ? (
+            <div className="image-spinner" />
+          ) : (
+            <div className="image-error">Falha ao carregar</div>
+          )}
+        </div>
+      )}
       {/* Resize Handles */}
       {/* Mid-side handles (mais fáceis de pegar que a borda fina) */}
       {!img.locked && (selected || isHovered) && (
@@ -1527,11 +1546,15 @@ const DraggableResizableImage = ({
         src={img.src}
         alt="Slide Image"
         draggable={false}
+        onLoad={() => setLoadState("loaded")}
+        onError={() => setLoadState("error")}
         style={{
           width: "100%",
           height: "100%",
           objectFit: "fill",
           pointerEvents: "none", // Prevent native drag
+          opacity: loadState === "loaded" ? 1 : 0,
+          transition: "opacity 160ms ease",
         }}
       />
     </div>
@@ -2393,6 +2416,11 @@ const SlideItem = ({
     <div
       ref={slideContainerRef}
       className={`slide-canvas ${isActive ? "active-slide" : ""}`}
+      onDragStartCapture={(e) => {
+        // Bloqueia o drag nativo do browser (ex.: arrastar <img>, links, etc.)
+        // O editor usa mouse events próprios para mover/redimensionar.
+        e.preventDefault();
+      }}
       onFocus={() => onFocus(slide.id)}
       onMouseDown={(e) => {
         const target = e.target as HTMLElement;
@@ -2578,6 +2606,7 @@ const ThumbnailItem = ({
               <img
                 src={img.src}
                 alt="thumb"
+                draggable={false}
                 style={{ width: "100%", height: "100%", objectFit: "fill" }}
               />
             </div>
@@ -4747,6 +4776,21 @@ export default function PublicacoesPage() {
                 ? "Salvando..."
                 : ""}
             </span>
+
+            {saveStatus === "error" && lastSaveError ? (
+              <div
+                style={{
+                  maxWidth: 420,
+                  fontSize: 12,
+                  color: "#b00020",
+                  marginTop: 4,
+                  lineHeight: 1.25,
+                }}
+              >
+                {lastSaveError}
+              </div>
+            ) : null}
+
           </div><button
             type="button"
             onClick={addTextBox}
