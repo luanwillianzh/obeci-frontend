@@ -30,7 +30,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Requests } from "@/contexts/ApiRequests";
 import { Client, type IMessage } from "@stomp/stompjs";
-import "./publication.css";
+import "./instrumento.css";
 
 type InstrumentoChangeLogDto = {
   id: number;
