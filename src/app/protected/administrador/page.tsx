@@ -128,7 +128,7 @@ type Turma = {
   nome: string;
   turno: string;
   escolaId: number;
-  professorId: number;
+  professorIds: number[];
   isActive: boolean;
 };
 
@@ -293,9 +293,11 @@ const TurmasView = ({
           <ProfileCard
             key={turma.id}
             nome={`Turma #${turma.id} - ${turma.nome}`}
-            subtitle={`Turno: ${turma.turno} | Professor: ${
-              professorNomeById.get(turma.professorId) ||
-              `#${turma.professorId}`
+            subtitle={`Turno: ${turma.turno} | Professores: ${
+              (turma.professorIds || [])
+                .map((pid) => professorNomeById.get(pid) || `#${pid}`)
+                .join(", ") ||
+              "(nenhum)"
             } | Escola: ${escolaNomeById.get(turma.escolaId) || `#${turma.escolaId}`}`}
             onEdit={() => onEdit(turma)}
             onDelete={() => onDelete(turma)}
@@ -510,7 +512,13 @@ export default function AdministrarDados() {
   async function handleSubmitProfessor(values: CadastroUsuariosValues) {
     try {
       if (editProfessorId) {
-        const payload: any = {
+        const payload: {
+          username: string;
+          email: string;
+          arrayRoles: string[];
+          cpf?: string;
+          password?: string;
+        } = {
           username: values.nome,
           email: values.email,
           arrayRoles: ["PROFESSOR"],
@@ -526,11 +534,24 @@ export default function AdministrarDados() {
         if (!res.ok) {
           let errorMsg = "Falha ao atualizar professor";
           try {
-            const data = await res.json();
-            if (data?.errors && Array.isArray(data.errors)) {
-              errorMsg = data.errors.map((e: any) => e.message).join("\n");
-            } else if (typeof data?.error === "string") {
-              errorMsg = data.error;
+            const data: unknown = await res.json();
+            if (typeof data === "object" && data !== null) {
+              const maybe = data as { errors?: unknown; error?: unknown };
+              if (Array.isArray(maybe.errors)) {
+                const msg = maybe.errors
+                  .map((err) => {
+                    if (typeof err === "object" && err !== null && "message" in err) {
+                      const m = (err as { message?: unknown }).message;
+                      return typeof m === "string" ? m : "";
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+                  .join("\n");
+                if (msg) errorMsg = msg;
+              } else if (typeof maybe.error === "string") {
+                errorMsg = maybe.error;
+              }
             }
           } catch {
             try {
@@ -555,11 +576,24 @@ export default function AdministrarDados() {
         if (!res.ok) {
           let errorMsg = "Falha ao criar professor";
           try {
-            const data = await res.json();
-            if (data?.errors && Array.isArray(data.errors)) {
-              errorMsg = data.errors.map((e: any) => e.message).join("\n");
-            } else if (typeof data?.error === "string") {
-              errorMsg = data.error;
+            const data: unknown = await res.json();
+            if (typeof data === "object" && data !== null) {
+              const maybe = data as { errors?: unknown; error?: unknown };
+              if (Array.isArray(maybe.errors)) {
+                const msg = maybe.errors
+                  .map((err) => {
+                    if (typeof err === "object" && err !== null && "message" in err) {
+                      const m = (err as { message?: unknown }).message;
+                      return typeof m === "string" ? m : "";
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+                  .join("\n");
+                if (msg) errorMsg = msg;
+              } else if (typeof maybe.error === "string") {
+                errorMsg = maybe.error;
+              }
             }
           } catch {
             try {
@@ -587,7 +621,13 @@ export default function AdministrarDados() {
   async function handleSubmitAdmin(values: CadastroUsuariosValues) {
     try {
       if (editAdminId) {
-        const payload: any = {
+        const payload: {
+          username: string;
+          email: string;
+          arrayRoles: string[];
+          cpf?: string;
+          password?: string;
+        } = {
           username: values.nome,
           email: values.email,
           arrayRoles: ["ADMIN"],
@@ -603,11 +643,24 @@ export default function AdministrarDados() {
         if (!res.ok) {
           let errorMsg = "Falha ao atualizar administrador";
           try {
-            const data = await res.json();
-            if (data?.errors && Array.isArray(data.errors)) {
-              errorMsg = data.errors.map((e: any) => e.message).join("\n");
-            } else if (typeof data?.error === "string") {
-              errorMsg = data.error;
+            const data: unknown = await res.json();
+            if (typeof data === "object" && data !== null) {
+              const maybe = data as { errors?: unknown; error?: unknown };
+              if (Array.isArray(maybe.errors)) {
+                const msg = maybe.errors
+                  .map((err) => {
+                    if (typeof err === "object" && err !== null && "message" in err) {
+                      const m = (err as { message?: unknown }).message;
+                      return typeof m === "string" ? m : "";
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+                  .join("\n");
+                if (msg) errorMsg = msg;
+              } else if (typeof maybe.error === "string") {
+                errorMsg = maybe.error;
+              }
             }
           } catch {
             try {
@@ -632,11 +685,24 @@ export default function AdministrarDados() {
         if (!res.ok) {
           let errorMsg = "Falha ao criar administrador";
           try {
-            const data = await res.json();
-            if (data?.errors && Array.isArray(data.errors)) {
-              errorMsg = data.errors.map((e: any) => e.message).join("\n");
-            } else if (typeof data?.error === "string") {
-              errorMsg = data.error;
+            const data: unknown = await res.json();
+            if (typeof data === "object" && data !== null) {
+              const maybe = data as { errors?: unknown; error?: unknown };
+              if (Array.isArray(maybe.errors)) {
+                const msg = maybe.errors
+                  .map((err) => {
+                    if (typeof err === "object" && err !== null && "message" in err) {
+                      const m = (err as { message?: unknown }).message;
+                      return typeof m === "string" ? m : "";
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+                  .join("\n");
+                if (msg) errorMsg = msg;
+              } else if (typeof maybe.error === "string") {
+                errorMsg = maybe.error;
+              }
             }
           } catch {
             try {
@@ -667,7 +733,7 @@ export default function AdministrarDados() {
           nome: values.nome,
           turno: values.turno,
           escolaId: values.escolaId,
-          professorId: values.professorId,
+          professorIds: values.professorIds,
           isActive: values.isActive,
         });
         if (!res.ok) {
@@ -680,7 +746,7 @@ export default function AdministrarDados() {
           nome: values.nome,
           turno: values.turno,
           escolaId: values.escolaId,
-          professorId: values.professorId,
+          professorIds: values.professorIds,
           isActive: values.isActive,
         });
         if (!res.ok) {
@@ -1016,7 +1082,7 @@ export default function AdministrarDados() {
                       nome: turmaById.get(editTurmaId)?.nome,
                       turno: turmaById.get(editTurmaId)?.turno,
                       escolaId: turmaById.get(editTurmaId)?.escolaId,
-                      professorId: turmaById.get(editTurmaId)?.professorId,
+                      professorIds: turmaById.get(editTurmaId)?.professorIds,
                       isActive: turmaById.get(editTurmaId)?.isActive,
                     }
                   : undefined

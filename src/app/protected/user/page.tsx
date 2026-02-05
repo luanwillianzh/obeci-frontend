@@ -94,11 +94,24 @@ export default function AdministrarAcessos() {
         // Backend pode retornar JSON (com errors[]) ou texto simples.
         let msg = "Falha ao atualizar senha";
         try {
-          const data = await res.json();
-          if (data?.errors && Array.isArray(data.errors)) {
-            msg = data.errors.map((e: any) => e.message).join("\n");
-          } else if (typeof data?.error === "string") {
-            msg = data.error;
+          const data: unknown = await res.json();
+          if (typeof data === "object" && data !== null) {
+            const maybe = data as { errors?: unknown; error?: unknown };
+            if (Array.isArray(maybe.errors)) {
+              const parsed = maybe.errors
+                .map((err) => {
+                  if (typeof err === "object" && err !== null && "message" in err) {
+                    const m = (err as { message?: unknown }).message;
+                    return typeof m === "string" ? m : "";
+                  }
+                  return "";
+                })
+                .filter(Boolean)
+                .join("\n");
+              if (parsed) msg = parsed;
+            } else if (typeof maybe.error === "string") {
+              msg = maybe.error;
+            }
           }
         } catch {
           try {

@@ -148,7 +148,7 @@ export type EscolaPayload = { nome: string; cidade: string; isActive: boolean };
 export type TurmaPayload = {
   nome: string;
   escolaId: number;
-  professorId: number;
+  professorIds: number[];
   turno: string;
   isActive: boolean;
 };

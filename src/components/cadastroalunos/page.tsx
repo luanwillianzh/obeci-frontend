@@ -11,7 +11,7 @@
  * - Mantém `values` como estado local controlado.
  * - Realiza validações mínimas no submit (campos obrigatórios e IDs > 0).
  */
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import styles from "./CadastroAlunos.module.css";
 import { Requests, ProfessorResponse } from "@/contexts/ApiRequests";
 
@@ -19,7 +19,7 @@ export interface CadastroTurmaValues {
   nome: string;
   turno: string;
   escolaId: number;
-  professorId: number;
+  professorIds: number[];
   isActive: boolean;
 }
 
@@ -43,13 +43,19 @@ export default function CadastroTurma({
     nome: initialValues?.nome ?? "",
     turno: initialValues?.turno ?? "",
     escolaId: initialValues?.escolaId ?? 0,
-    professorId: initialValues?.professorId ?? 0,
+    professorIds: initialValues?.professorIds ?? [],
     isActive: initialValues?.isActive ?? true,
   });
+
+  const [professorToAddId, setProfessorToAddId] = useState(0);
 
   type EscolaOption = { id: number; nome: string };
   const [escolas, setEscolas] = useState<EscolaOption[]>([]);
   const [professores, setProfessores] = useState<ProfessorResponse[]>([]);
+
+  const professorById = useMemo(() => {
+    return new Map(professores.map((p) => [p.id, p] as const));
+  }, [professores]);
 
   /**
    * Carrega escolas.
@@ -114,9 +120,24 @@ export default function CadastroTurma({
     // Validação mínima de campos obrigatórios.
     if (!values.nome.trim() || !values.turno.trim()) return;
     if (!values.escolaId || values.escolaId <= 0) return;
-    if (!values.professorId || values.professorId <= 0) return;
+    if (!values.professorIds || values.professorIds.length <= 0) return;
     if (onSubmit) onSubmit(values);
     else console.log("CadastroTurma submit:", values);
+  }
+
+  function addProfessorId(id: number) {
+    if (!Number.isFinite(id) || id <= 0) return;
+    setValues((prev) => {
+      if (prev.professorIds.includes(id)) return prev;
+      return { ...prev, professorIds: [...prev.professorIds, id] };
+    });
+  }
+
+  function removeProfessorId(id: number) {
+    setValues((prev) => ({
+      ...prev,
+      professorIds: prev.professorIds.filter((pid) => pid !== id),
+    }));
   }
 
   return (
@@ -181,30 +202,64 @@ export default function CadastroTurma({
             </div>
 
             <div className={styles.formGroup}>
-              <label className={styles.label} htmlFor="professorId">
-                Professor
+              <label className={styles.label} htmlFor="professorIds">
+                Professores
               </label>
               <select
-                id="professorId"
+                id="professorIds"
                 className={styles.rect}
-                value={values.professorId}
-                onChange={(e) =>
-                  setValues((prev) => ({
-                    ...prev,
-                    professorId: parseInt(e.target.value, 10),
-                  }))
-                }
+                value={professorToAddId}
+                onChange={(e) => {
+                  const id = parseInt(e.target.value, 10);
+                  if (Number.isFinite(id) && id > 0) {
+                    addProfessorId(id);
+                  }
+                  setProfessorToAddId(0);
+                }}
               >
-                <option value={0}>Selecione um professor</option>
+                <option value={0}>Selecione um professor para adicionar</option>
                 {professores.map((p) => (
-                  <option key={p.id} value={p.id}>
+                  <option
+                    key={p.id}
+                    value={p.id}
+                    disabled={values.professorIds.includes(p.id)}
+                  >
                     {p.username} ({p.email})
+                    {values.professorIds.includes(p.id) ? " — adicionado" : ""}
                   </option>
                 ))}
               </select>
+
+              {values.professorIds.length > 0 ? (
+                <div className={styles.chipList} aria-label="Professores selecionados">
+                  {values.professorIds.map((id) => {
+                    const p = professorById.get(id);
+                    const label = p
+                      ? `${p.username} (${p.email})`
+                      : `Professor #${id}`;
+                    return (
+                      <span key={id} className={styles.chip} title={label}>
+                        {label}
+                        <button
+                          type="button"
+                          className={styles.chipRemove}
+                          aria-label={`Remover ${label}`}
+                          onClick={() => removeProfessorId(id)}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className={styles.helperText}>
+                  Selecione pelo menos 1 professor.
+                </div>
+              )}
             </div>
 
-            <div className={styles.formGroup}>
+           {/*  <div className={styles.formGroup}>
               <label className={styles.label} htmlFor="isActive">
                 Ativa
               </label>
@@ -214,7 +269,7 @@ export default function CadastroTurma({
                 checked={values.isActive}
                 onChange={handleCheckboxChange}
               />
-            </div>
+            </div> */}
           </div>
         </div>
 

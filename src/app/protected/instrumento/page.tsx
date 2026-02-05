@@ -2561,19 +2561,6 @@ const ThumbnailItem = ({
             overflow: "hidden",
           }}
         >
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              width: "100%",
-              height: "100%",
-              whiteSpace: "pre-wrap",
-              wordWrap: "break-word",
-              overflowWrap: "break-word",
-            }}
-            dangerouslySetInnerHTML={{ __html: slide.content || "" }}
-          />
           {slide.images.map((img) => (
             <div
               key={img.id}
@@ -4709,8 +4696,8 @@ export default function PublicacoesPage() {
               ...slides,
               {
                 id: Date.now(),
-                content: "Novo Slide",
-                styles: { fontSize: "24px", fontFamily: "Nunito"},
+                content: "",
+                styles: { fontSize: "24px", fontFamily: "Nunito" },
                 textBoxes: [],
                 images: [],
               },
@@ -4760,21 +4747,6 @@ export default function PublicacoesPage() {
                 ? "Salvando..."
                 : ""}
             </span>
-
-            {saveStatus === "error" && lastSaveError ? (
-              <div
-                style={{
-                  maxWidth: 420,
-                  fontSize: 12,
-                  color: "#b00020",
-                  marginTop: 4,
-                  lineHeight: 1.25,
-                }}
-              >
-                {lastSaveError}
-              </div>
-            ) : null}
-
           </div><button
             type="button"
             onClick={addTextBox}

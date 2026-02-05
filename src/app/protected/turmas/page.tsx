@@ -25,7 +25,7 @@ type Turma = {
   nome: string;
   turno: string;
   escolaId: number;
-  professorId: number;
+  professorIds: number[];
   isActive: boolean;
 };
 
@@ -62,7 +62,7 @@ export default function TurmasPage() {
           isAdmin ? Requests.listTurmas() : Requests.listMyTurmas(),
           Requests.listEscolas(),
           // Somente ADMIN tem permissão para listar professores.
-          isAdmin ? Requests.listProfessores() : Promise.resolve(null as any),
+          isAdmin ? Requests.listProfessores() : Promise.resolve<Response | null>(null),
           // Lembretes são sempre do próprio usuário (autenticado)
           Requests.listMyLembretes(),
         ]);
@@ -95,7 +95,7 @@ export default function TurmasPage() {
         } else {
           setProfessores([]);
         }
-      } catch (err: any) {
+      } catch {
         try {
           window.location.reload();
         } catch {}
@@ -305,13 +305,14 @@ export default function TurmasPage() {
                   {lista.map((t) => (
                     <ClassCard
                       key={t.id}
-                      class_name={`Turma #${t.id} - ${t.nome}`}
+                      class_name={`${t.nome}`}
                       turno={t.turno}
                       professor_nome={
                         isAdmin
-                          ? professorNomeById.get(t.professorId) ||
-                            `#${t.professorId}`
-                          : user?.name || `#${t.professorId}`
+                          ? (t.professorIds || [])
+                              .map((pid) => professorNomeById.get(pid) || `#${pid}`)
+                              .join(", ") || "(nenhum)"
+                          : user?.name || ""
                       }
                       q_alunos={0}
                       class_id={String(t.id)}
