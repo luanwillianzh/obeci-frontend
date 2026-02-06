@@ -294,6 +294,27 @@ function savePublicationToStorage(slides: Slide[]): void {
   }
 }
 
+function dataUrlToFile(dataUrl: string, fileName: string): File | null {
+  try {
+    if (!dataUrl.startsWith("data:")) return null;
+    const parts = dataUrl.split(",");
+    if (parts.length < 2) return null;
+    const header = parts[0] || "";
+    const base64 = parts.slice(1).join(",");
+    const mimeMatch = header.match(/^data:([^;]+);base64$/);
+    const mime = (mimeMatch && mimeMatch[1]) || "image/png";
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mime });
+    return new File([blob], fileName, { type: mime });
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================================
 // ImageCropper - Recorte simples de imagem com seleção arrastável
 // ============================================================================
@@ -2772,6 +2793,10 @@ export default function PublicacoesPage() {
   const suppressAutosaveUntilRef = useRef<number>(0);
   const [shouldUsePost, setShouldUsePost] = useState<boolean>(!!turmaId);
 
+  // Evita persistir um `data:` temporário durante upload/recorte.
+  const pendingImageUploadsRef = useRef<number>(0);
+  const [pendingImageUploads, setPendingImageUploads] = useState<number>(0);
+
   // Sempre usar POST na primeira gravação quando mudar a turma
   useEffect(() => {
     setShouldUsePost(!!turmaId);
@@ -2784,6 +2809,8 @@ export default function PublicacoesPage() {
     pendingWsSavedJsonRef.current = null;
     dirtySinceLastPersistRef.current = false;
     suppressAutosaveUntilRef.current = 0;
+    pendingImageUploadsRef.current = 0;
+    setPendingImageUploads(0);
   }, [turmaId]);
 
   useEffect(() => {
@@ -3007,18 +3034,56 @@ export default function PublicacoesPage() {
   // Carregar via API quando houver turmaId
   useEffect(() => {
     let cancelled = false;
+
+    const redirectToTurmas = () => {
+      console.log("[instrumento] redirectToTurmas()", {
+        turmaId,
+        cancelled,
+      });
+      setIsRedirecting(true);
+      setLoadedFromApi(false);
+      setCanSaveToApi(false);
+      router.replace("/protected/turmas");
+      // Fallback: em alguns cenários (dev/hidratação) o router pode não navegar.
+      // Isso garante o redirect mesmo assim.
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          try {
+            const alreadyRedirected = window.sessionStorage.getItem("obeci.instrumento.redirected") === "1";
+            if (!alreadyRedirected && window.location.pathname.startsWith("/protected/instrumento")) {
+              window.sessionStorage.setItem("obeci.instrumento.redirected", "1");
+              window.location.replace("/protected/turmas");
+            }
+          } catch {
+            // ignore
+          }
+        }, 50);
+      }
+    };
+
     const load = async () => {
       if (!turmaId) return;
+      console.log("[instrumento] load() start", { turmaId });
       setLoading(true);
       try {
         const res = await Requests.getInstrumentoByTurma(turmaId);
+        console.log("[instrumento] getInstrumentoByTurma response", {
+          turmaId,
+          ok: res.ok,
+          status: res.status,
+          statusText: res.statusText,
+        });
         if (!res.ok) {
-          // Se o instrumento não existir, deixa "cair" no not-found.
-          if (res.status === 404 && !cancelled) {
-            setIsRedirecting(true);
-            setLoadedFromApi(false);
-            setCanSaveToApi(false);
-            router.replace("/_not-found");
+          // UX: se não tiver acesso (401/403) ou se a turma/instrumento não existir (404),
+          // redirecionar para a lista de turmas.
+          // Nota: alguns erros internos estão sendo mapeados para 400 no backend; para o usuário,
+          // o comportamento esperado aqui também é voltar para turmas.
+          if ((res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) && !cancelled) {
+            console.log("[instrumento] non-ok -> redirecting", {
+              turmaId,
+              status: res.status,
+            });
+            redirectToTurmas();
             return;
           }
 
@@ -3066,7 +3131,7 @@ export default function PublicacoesPage() {
           }
         }
       } catch (e) {
-        console.error("Erro ao carregar instrumento:", e);
+        console.error("[instrumento] Erro ao carregar instrumento:", e);
         setLoadedFromApi(false);
         setCanSaveToApi(false);
       } finally {
@@ -3427,6 +3492,12 @@ export default function PublicacoesPage() {
         return;
       }
 
+      // Se há upload de imagem pendente (ex.: recorte), aguarde finalizar
+      // para não persistir `data:`/conteúdo temporário.
+      if (pendingImageUploadsRef.current > 0) {
+        return;
+      }
+
       // Se não houve mudança local desde o último persist, não agendar nada.
       if (!dirtySinceLastPersistRef.current) {
         return;
@@ -3516,6 +3587,11 @@ export default function PublicacoesPage() {
   const handleManualSave = async () => {
     if (!turmaId) return;
     if (!canSaveToApi) return;
+    if (pendingImageUploadsRef.current > 0) {
+      setSaveStatus("error");
+      setLastSaveError("Aguarde o upload da imagem terminar para salvar.");
+      return;
+    }
     try {
       setSaveStatus("saving");
       setLastSaveError(null);
@@ -3855,20 +3931,90 @@ export default function PublicacoesPage() {
 
   const handleImageCropConfirm = (newSrc: string) => {
     if (!croppingImage) return;
-    setSlides(
-      slides.map((s) => {
-        if (s.id === croppingImage.slideId) {
-          return {
-            ...s,
-            images: s.images.map((img) =>
-              img.id === croppingImage.imgId ? { ...img, src: newSrc } : img
-            ),
-          };
-        }
-        return s;
+
+    const { slideId, imgId } = croppingImage;
+    setCroppingImage(null);
+
+    // Preview imediato (mantém o comportamento atual do recorte)
+    // Mas evita autosave até substituirmos por uma URL persistente (quando houver turmaId).
+    if (turmaId) {
+      pendingImageUploadsRef.current += 1;
+      setPendingImageUploads(pendingImageUploadsRef.current);
+      suppressAutosaveUntilRef.current = Math.max(
+        suppressAutosaveUntilRef.current,
+        Date.now() + 20000
+      );
+    }
+
+    setSlides((prev) =>
+      prev.map((s) => {
+        if (s.id !== slideId) return s;
+        return {
+          ...s,
+          images: s.images.map((img) =>
+            img.id === imgId ? { ...img, src: newSrc } : img
+          ),
+        };
       })
     );
-    setCroppingImage(null);
+
+    // Persistência: quando há turmaId, enviar o recorte para a API e substituir src.
+    if (turmaId) {
+      (async () => {
+        try {
+          const file = dataUrlToFile(newSrc, `crop-${turmaId}-${slideId}-${imgId}.png`);
+          if (!file) {
+            return;
+          }
+
+          const res = await Requests.uploadInstrumentoImage(file);
+          if (!res.ok) {
+            console.error("[instrumento] Falha no upload do recorte:", res.status);
+            return;
+          }
+          const relativeUrl = ((await res.text()) || "").trim().replace(/^"|"$/g, "");
+
+          let stableUrl: string | null = null;
+          const match = relativeUrl.match(/\/images\/(\d+)/);
+          if (match && match[1]) {
+            const idNum = parseInt(match[1], 10);
+            if (!Number.isNaN(idNum)) {
+              stableUrl = Requests.getInstrumentoImageUrl(idNum);
+            }
+          }
+          if (!stableUrl) {
+            const base = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+            stableUrl = `${base}${
+              relativeUrl.startsWith("/") ? relativeUrl : `/${relativeUrl}`
+            }`;
+          }
+
+          // Libera autosave para salvar a URL estável.
+          suppressAutosaveUntilRef.current = Math.min(
+            suppressAutosaveUntilRef.current,
+            Date.now() - 1
+          );
+
+          setSlides((prev) =>
+            prev.map((s) => {
+              if (s.id !== slideId) return s;
+              return {
+                ...s,
+                images: s.images.map((img) => {
+                  if (img.id !== imgId) return img;
+                  // Evita sobrescrever se o usuário já alterou a imagem de novo.
+                  if (img.src !== newSrc) return img;
+                  return { ...img, src: stableUrl as string };
+                }),
+              };
+            })
+          );
+        } finally {
+          pendingImageUploadsRef.current = Math.max(0, pendingImageUploadsRef.current - 1);
+          setPendingImageUploads(pendingImageUploadsRef.current);
+        }
+      })();
+    }
   };
 
   const handleImageDelete = (slideId: number, imgId: number) => {
@@ -4745,13 +4891,15 @@ export default function PublicacoesPage() {
             <button
               onClick={handleManualSave}
               disabled={!turmaId || saveStatus === "saving"}
-              title={turmaId ? "Salvar publicação" : "Selecione uma turma"}
+              aria-label={turmaId ? "Salvar publicação" : "Selecione uma turma"}
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
               className={
                 "save-button" +
                 (saveStatus === "saving" ? " save-button--saving" : "")
               }
             >
-              <span className="save-button__label">
+              <span className="save-button__label" draggable={false}>
                 {saveStatus === "saving" ? "Salvando..." : "Salvar"}
               </span>
             </button>
@@ -5028,8 +5176,19 @@ export default function PublicacoesPage() {
               </svg>
             </button>
           </div>
-          <label className="image-upload-btn">
-            Upload
+          <label className="image-upload-btn" aria-label="Upload de imagem" title="Upload de imagem">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              height="24px"
+              viewBox="0 -960 960 960"
+              width="24px"
+              fill="#000000"
+              aria-hidden="true"
+              focusable="false"
+              style={{ display: "block" }}
+            >
+              <path d="M480-480ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h320v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm40-160h480L570-480 450-320l-90-120-120 160Zm480-280v-167l-64 63-56-56 160-160 160 160-56 56-64-63v167h-80Z" />
+            </svg>
             <input
               type="file"
               accept="image/*"

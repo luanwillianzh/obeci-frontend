@@ -19,6 +19,7 @@ import ClassCard from "@/components/class_card/class_card";
 import "./turmas.css";
 import { Requests } from "@/contexts/ApiRequests";
 import { useAuth } from "@/contexts/useAuth";
+import { useRouter } from "next/navigation";
 
 type Turma = {
   id: number;
@@ -32,7 +33,8 @@ type Turma = {
 type Escola = { id: number; nome: string };
 
 export default function TurmasPage() {
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, logout } = useAuth();
+  const router = useRouter();
 
   /** Listas base carregadas do backend. */
   const [turmas, setTurmas] = useState<Turma[]>([]);
@@ -43,6 +45,8 @@ export default function TurmasPage() {
 
   /** Estados de carregamento e UI do painel de lembretes. */
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
   const [lembretes, setLembretes] = useState<string[]>([]);
   const [novoLembrete, setNovoLembrete] = useState("");
   const [editandoIndex, setEditandoIndex] = useState<number | null>(null);
@@ -57,6 +61,7 @@ export default function TurmasPage() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         const [turmasRes, escolasRes, professoresRes, lembretesRes] = await Promise.all([
           isAdmin ? Requests.listTurmas() : Requests.listMyTurmas(),
@@ -67,10 +72,17 @@ export default function TurmasPage() {
           Requests.listMyLembretes(),
         ]);
         if (!turmasRes.ok || !escolasRes.ok) {
-          // Em erro de carregamento (ex.: 401/403/404), apenas recarregar a página
-          try {
-            window.location.reload();
-          } catch {}
+          const status = !turmasRes.ok ? turmasRes.status : escolasRes.status;
+          if (status === 401 || status === 403) {
+            // Sessão/permissão inválida: limpa e manda para login.
+            try {
+              await logout();
+            } catch {}
+            router.replace("/login");
+            return;
+          }
+
+          setLoadError("Não foi possível carregar suas turmas agora.");
           return;
         }
         const t = (await turmasRes.json()) as Turma[];
@@ -96,16 +108,14 @@ export default function TurmasPage() {
           setProfessores([]);
         }
       } catch {
-        try {
-          window.location.reload();
-        } catch {}
+        setLoadError("Não foi possível carregar suas turmas agora.");
         return;
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [isAdmin]);
+  }, [isAdmin, logout, router, reloadTick]);
 
   /** Cache de nomes de professores para renderização de cards. */
   const professorNomeById = useMemo(
@@ -204,6 +214,29 @@ export default function TurmasPage() {
 
   if (loading) {
     return null;
+  }
+
+  if (loadError) {
+    return (
+      <div className="container-principal-turmas">
+        <div className="container-lembrete-turmas">
+          <div className="container-header-turmas">
+            <div className="container-turmas">
+              <div className="empty-message">{loadError}</div>
+              <button
+                className="botao-criar"
+                onClick={() => {
+                  // Recarrega apenas o estado da tela (sem reload do browser)
+                  setReloadTick((v) => v + 1);
+                }}
+              >
+                Tentar novamente
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Em caso de erro, a página será recarregada pelo efeito acima.

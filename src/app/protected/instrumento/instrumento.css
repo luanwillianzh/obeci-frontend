@@ -231,6 +231,7 @@
   border-radius: 10px;
   font-weight: 700;
   letter-spacing: 0.2px;
+  user-select: none;
   cursor: pointer;
   border: 1px solid #1a73e8;
   background: linear-gradient(180deg, #ffffff 0%, #f3f6fb 100%);
